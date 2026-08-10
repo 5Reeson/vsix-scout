@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = new URL('../', import.meta.url);
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const packageJson = JSON.parse(
   await readFile(new URL('package.json', repositoryRoot), 'utf8'),
 );
@@ -25,7 +26,7 @@ function run(command, args) {
   });
   if (result.status !== 0) {
     throw new Error(
-      `${command} ${args.join(' ')} failed:\n${result.stderr || result.stdout}`,
+      `${command} ${args.join(' ')} failed:\n${result.error?.message ?? result.stderr ?? result.stdout}`,
     );
   }
   return result.stdout;
@@ -59,7 +60,7 @@ invariant(
 const npmCache = await mkdtemp(join(tmpdir(), 'vsix-scout-npm-cache-'));
 let packOutput;
 try {
-  packOutput = run('npm', [
+  packOutput = run(npmCommand, [
     'pack',
     '--dry-run',
     '--json',
