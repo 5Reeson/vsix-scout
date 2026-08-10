@@ -1,0 +1,55 @@
+{
+  "results": [
+    {
+      "extensions": [
+        {
+          "extensionId": "96fa4707-6983-4489-b7c5-d5ffdfdcce90",
+          "extensionName": "prettier-vscode",
+          "displayName": "Prettier - Code formatter",
+          "publisher": {
+            "publisherName": "esbenp",
+            "displayName": "Prettier"
+          },
+          "publishedDate": "2017-01-10T19:52:02.703Z",
+          "lastUpdated": "2026-03-16T19:18:07.213Z",
+          "versions": [
+            {
+              "version": "12.4.0",
+              "lastUpdated": "2026-03-16T19:18:07.213Z",
+              "assetUri": "https://esbenp.gallerycdn.vsassets.io/extensions/esbenp/prettier-vscode/12.4.0/1773688466128",
+              "fallbackAssetUri": "https://esbenp.gallery.vsassets.io/_apis/public/gallery/publisher/esbenp/extension/prettier-vscode/12.4.0/assetbyname",
+              "properties": [
+                {
+                  "key": "Microsoft.VisualStudio.Code.Engine",
+                  "value": "^1.101.0"
+                },
+                {
+                  "key": "Microsoft.VisualStudio.Code.ExtensionDependencies",
+                  "value": ""
+                },
+                {
+                  "key": "Microsoft.VisualStudio.Code.ExtensionPack",
+                  "value": ""
+                },
+                {
+                  "key": "Microsoft.VisualStudio.Services.VsixSha256",
+                  "value": "46d22a567b35ebe5bdffd7280457742cd67e65d7e1b250bb775ab2be86479a42"
+                }
+              ],
+              "files": [
+                {
+                  "assetType": "Microsoft.VisualStudio.Code.Manifest",
+                  "source": "https://esbenp.gallerycdn.vsassets.io/extensions/esbenp/prettier-vscode/12.4.0/1773688466128/Microsoft.VisualStudio.Code.Manifest"
+                },
+                {
+                  "assetType": "Microsoft.VisualStudio.Services.VSIXPackage",
+                  "source": "https://esbenp.gallerycdn.vsassets.io/extensions/esbenp/prettier-vscode/12.4.0/1773688466128/Microsoft.VisualStudio.Services.VSIXPackage"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

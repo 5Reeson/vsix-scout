@@ -1,0 +1,77 @@
+{
+  "results": [
+    {
+      "extensions": [
+        {
+          "extensionId": "f1e16e1e-25e7-4c98-8c2d-1d5f14bb7ab6",
+          "extensionName": "python",
+          "displayName": "Python",
+          "publisher": {
+            "publisherName": "ms-python",
+            "displayName": "Microsoft"
+          },
+          "versions": [
+            {
+              "version": "2026.7.2026080801",
+              "targetPlatform": "win32-x64",
+              "lastUpdated": "2026-08-08T00:45:17.47Z",
+              "assetUri": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.7.2026080801/1786149413354",
+              "fallbackAssetUri": "https://ms-python.gallery.vsassets.io/_apis/public/gallery/publisher/ms-python/extension/python/2026.7.2026080801/assetbyname",
+              "properties": [
+                {
+                  "key": "Microsoft.VisualStudio.Code.Engine",
+                  "value": "^1.95.0"
+                },
+                {
+                  "key": "Microsoft.VisualStudio.Code.PreRelease",
+                  "value": "true"
+                },
+                {
+                  "key": "Microsoft.VisualStudio.Services.VsixSha256",
+                  "value": "76ea6b9eba4fc50383b611966ae75017e11feaa6e3b8fbaec2b018b4f9a53b9a"
+                }
+              ],
+              "files": [
+                {
+                  "assetType": "Microsoft.VisualStudio.Code.Manifest",
+                  "source": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.7.2026080801/1786149413354/Microsoft.VisualStudio.Code.Manifest"
+                },
+                {
+                  "assetType": "Microsoft.VisualStudio.Services.VSIXPackage",
+                  "source": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.7.2026080801/1786149413354/Microsoft.VisualStudio.Services.VSIXPackage"
+                }
+              ]
+            },
+            {
+              "version": "2026.4.0",
+              "targetPlatform": "win32-x64",
+              "lastUpdated": "2026-03-12T18:01:03.52Z",
+              "assetUri": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.4.0/1773338186643",
+              "fallbackAssetUri": "https://ms-python.gallery.vsassets.io/_apis/public/gallery/publisher/ms-python/extension/python/2026.4.0/assetbyname",
+              "properties": [
+                {
+                  "key": "Microsoft.VisualStudio.Code.Engine",
+                  "value": "^1.95.0"
+                },
+                {
+                  "key": "Microsoft.VisualStudio.Services.VsixSha256",
+                  "value": "c877195e39d5fe88fc8416efbf3b2c5dbd576000bf624dc22821fc26fa112079"
+                }
+              ],
+              "files": [
+                {
+                  "assetType": "Microsoft.VisualStudio.Code.Manifest",
+                  "source": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.4.0/1773338186643/Microsoft.VisualStudio.Code.Manifest"
+                },
+                {
+                  "assetType": "Microsoft.VisualStudio.Services.VSIXPackage",
+                  "source": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.4.0/1773338186643/Microsoft.VisualStudio.Services.VSIXPackage"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

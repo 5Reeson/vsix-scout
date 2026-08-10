@@ -1,6 +1,6 @@
 # VSIX Scout 项目定义与开发记录
 
-> **项目状态：** 规划中
+> **项目状态：** Phase 0 已完成，Phase 1 待开始
 >
 > **仓库：** `vsix-scout`
 >
@@ -167,7 +167,11 @@ vsix-scout lock <input-file>       # MVP 后
 ```ts
 interface ResolutionResult {
   extension: { id: string; publisher: string; name: string };
-  target: { vscode: string; platform: string; channel: "stable" | "pre-release" };
+  target: {
+    vscode: string;
+    platform: string;
+    channel: 'stable' | 'pre-release';
+  };
   selected: {
     version: string;
     engine: string;
@@ -176,10 +180,10 @@ interface ResolutionResult {
     assetUrl: string;
     manifestUrl?: string;
   };
-  source: { provider: "visual-studio-marketplace"; official: true };
+  source: { provider: 'visual-studio-marketplace'; official: true };
   compatibility: {
     compatible: true;
-    platformMatch: "exact" | "universal";
+    platformMatch: 'exact' | 'universal';
     reasons: string[];
     limitations: string[];
   };
@@ -290,6 +294,8 @@ MVP 可发布需要同时满足：
 
 ### Phase 0 — 事实验证与工程基线
 
+**状态：** 已于 2026-08-10 完成。
+
 **目标：** 在写完整产品代码前，验证 Marketplace 数据是否足够支持设计。
 
 **工作：**
@@ -382,15 +388,15 @@ MVP 可发布需要同时满足：
 
 ## 12. 风险与应对
 
-| 风险 | 影响 | 应对 |
-| --- | --- | --- |
-| Marketplace API 非正式或字段变化 | 解析中断或误选 | provider 隔离、运行时校验、fixtures、schema 漂移错误 |
-| engine metadata 缺失或不准确 | 无法判定或理论兼容但实际不可用 | manifest fallback；明确“声明兼容”的局限 |
-| 平台变体与版本排序复杂 | 下载错误包 | 以版本变体为候选实体；精确平台优先并充分测试 |
-| URL/redirect 被滥用 | SSRF 或下载非官方内容 | 输入收敛、HTTPS、逐跳 allowlist、大小与超时限制 |
-| 上游限流或网络不稳 | CLI 体验不稳定 | 有限重试、超时、短期 metadata cache、可诊断错误 |
-| Marketplace/扩展许可证限制 | 发布或使用风险 | 不镜像、不重分发；公开发布前复核条款并明确定位 |
-| 过早开发 Web | 核心逻辑不稳、重复实现 | Phase 1–4 只以 core/provider/CLI 为主 |
+| 风险                             | 影响                           | 应对                                                 |
+| -------------------------------- | ------------------------------ | ---------------------------------------------------- |
+| Marketplace API 非正式或字段变化 | 解析中断或误选                 | provider 隔离、运行时校验、fixtures、schema 漂移错误 |
+| engine metadata 缺失或不准确     | 无法判定或理论兼容但实际不可用 | manifest fallback；明确“声明兼容”的局限              |
+| 平台变体与版本排序复杂           | 下载错误包                     | 以版本变体为候选实体；精确平台优先并充分测试         |
+| URL/redirect 被滥用              | SSRF 或下载非官方内容          | 输入收敛、HTTPS、逐跳 allowlist、大小与超时限制      |
+| 上游限流或网络不稳               | CLI 体验不稳定                 | 有限重试、超时、短期 metadata cache、可诊断错误      |
+| Marketplace/扩展许可证限制       | 发布或使用风险                 | 不镜像、不重分发；公开发布前复核条款并明确定位       |
+| 过早开发 Web                     | 核心逻辑不稳、重复实现         | Phase 1–4 只以 core/provider/CLI 为主                |
 
 ## 13. 待验证问题
 
@@ -409,19 +415,22 @@ MVP 可发布需要同时满足：
 
 关键决策在此追加，避免只存在于聊天或提交信息中。
 
-| 日期 | 决策 | 理由 | 状态 |
-| --- | --- | --- | --- |
-| 2026-08-10 | 项目命名为 VSIX Scout，CLI 为 `vsix-scout` | 名称直接表达“寻找正确 VSIX”的用途 | 已接受 |
-| 2026-08-10 | MVP 只支持 Visual Studio Marketplace | 收敛协议、测试和合规范围 | 已接受 |
-| 2026-08-10 | TypeScript monorepo，Node.js 20+，pnpm workspace | 共享 core/provider/schema，同时隔离 CLI 与未来 Web | 初始决定，Phase 0 验证 |
-| 2026-08-10 | 先 core/provider/CLI，后 Web | 兼容性正确性和脚本能力是首要价值 | 已接受 |
-| 2026-08-10 | 默认选择 stable，pre-release 必须显式请求 | 默认行为更适合企业稳定环境 | 已接受 |
-| 2026-08-10 | 精确平台优先，缺失时才使用 universal | 防止误选其他平台包，同时保留官方通用包 fallback | 已接受 |
-| 2026-08-10 | 只从官方 allowlist 来源下载，不托管 VSIX | 维持来源可信度并降低供应链与合规风险 | 已接受 |
-| 2026-08-10 | Phase 0 先进行真实数据探针 | Marketplace 字段和边界需要证据验证，不能仅按理想模型实现 | 已接受 |
+| 日期       | 决策                                              | 理由                                                     | 状态                   |
+| ---------- | ------------------------------------------------- | -------------------------------------------------------- | ---------------------- |
+| 2026-08-10 | 项目命名为 VSIX Scout，CLI 为 `vsix-scout`        | 名称直接表达“寻找正确 VSIX”的用途                        | 已接受                 |
+| 2026-08-10 | MVP 只支持 Visual Studio Marketplace              | 收敛协议、测试和合规范围                                 | 已接受                 |
+| 2026-08-10 | TypeScript monorepo，Node.js 20+，pnpm workspace  | 共享 core/provider/schema，同时隔离 CLI 与未来 Web       | 初始决定，Phase 0 验证 |
+| 2026-08-10 | 先 core/provider/CLI，后 Web                      | 兼容性正确性和脚本能力是首要价值                         | 已接受                 |
+| 2026-08-10 | 默认选择 stable，pre-release 必须显式请求         | 默认行为更适合企业稳定环境                               | 已接受                 |
+| 2026-08-10 | 精确平台优先，缺失时才使用 universal              | 防止误选其他平台包，同时保留官方通用包 fallback          | 已接受                 |
+| 2026-08-10 | 只从官方 allowlist 来源下载，不托管 VSIX          | 维持来源可信度并降低供应链与合规风险                     | 已接受                 |
+| 2026-08-10 | Phase 0 先进行真实数据探针                        | Marketplace 字段和边界需要证据验证，不能仅按理想模型实现 | 已接受                 |
+| 2026-08-10 | Provider 接受上游额外平台值，CLI 单独限制用户目标 | 实际数据还包含 alpine、web 和 linux-armhf 等平台         | 已接受                 |
+| 2026-08-10 | 资源模型同时保留 primary 和 fallback URL          | 已确认部分历史 CDN asset 失效，但官方 fallback 仍可用    | 已接受                 |
 
 ## 15. 变更记录
 
-| 日期 | 变更 |
-| --- | --- |
+| 日期       | 变更                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
 | 2026-08-10 | 根据原始项目交接材料创建项目定义基线，补充目标用户、产品原则、结果模型、验收标准、风险、待验证问题和七阶段路线图。 |
+| 2026-08-10 | 完成 Phase 0：建立工程基线、协议探针、内部模型、四类真实 fixtures、CI、安全 URL 策略和自动化验证。                 |
