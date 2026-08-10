@@ -26,7 +26,7 @@ docs/                Protocol and architecture evidence
 Requirements:
 
 - Node.js 20 or newer
-- pnpm 10 or newer
+- pnpm 10.x (`10.34.5` is pinned by the repository)
 
 ```bash
 pnpm install
