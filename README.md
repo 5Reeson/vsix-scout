@@ -6,9 +6,10 @@ VSIX Scout will resolve the newest compatible historical VSIX for a target VS
 Code version and platform, explain the choice, and download only from validated
 official Marketplace sources.
 
-The project has completed **Phase 1: pure compatibility resolver**. Marketplace
-network access and user-facing CLI commands are planned for later phases and are
-not implemented yet.
+The project has completed **Phase 2: Marketplace provider**. It can normalize
+official Marketplace references, query and validate historical metadata, and
+recover missing engine metadata from official manifests. User-facing CLI
+commands are planned for Phase 3 and are not implemented yet.
 
 ## Repository layout
 
@@ -40,6 +41,12 @@ Optional live metadata probe:
 pnpm probe:marketplace
 ```
 
+Optional live provider smoke test:
+
+```bash
+pnpm test:live:marketplace
+```
+
 The probe does not download or execute an extension. Automated tests use local
 fixtures and do not require network access.
 
@@ -47,6 +54,7 @@ fixtures and do not require network access.
 
 - [Project definition and roadmap](PROJECT.md)
 - [Marketplace protocol notes](docs/marketplace-protocol.md)
+- [Marketplace provider policy](docs/marketplace-provider.md)
 - [Resolver policy](docs/resolver-policy.md)
 - [Fixture provenance](tests/fixtures/README.md)
 

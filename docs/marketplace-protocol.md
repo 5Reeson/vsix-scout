@@ -139,10 +139,12 @@ Observed Python platform values included `alpine-arm64`, `alpine-x64`,
 accepts non-empty upstream platform strings; the user-facing supported-target
 policy remains a separate core/CLI concern.
 
-The Python response was about 8.7 MB. Phase 2 needs explicit response-size,
-timeout, retry, and cache policies. The `VsixSha256` property is useful evidence,
-but downloads will still be hashed locally rather than trusting it as the sole
-integrity check.
+The Python response was about 8.7 MB. The Phase 2 provider therefore enforces a
+16 MiB metadata limit, a 2 MiB manifest limit, per-attempt timeouts, finite
+retries, bounded manifest concurrency, and a five-minute successful-result
+cache. The `VsixSha256` property is useful evidence, but downloads will still be
+hashed locally rather than trusting it as the sole integrity check. See the
+[provider policy](marketplace-provider.md) for the exact behavior.
 
 ## Fixture policy
 
@@ -156,6 +158,7 @@ Run the optional live probe with:
 ```bash
 pnpm probe:marketplace
 pnpm probe:marketplace dbaeumer.vscode-eslint
+pnpm test:live:marketplace
 ```
 
 The probe only requests public metadata. It does not download or execute VSIX

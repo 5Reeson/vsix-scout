@@ -14,6 +14,7 @@
   ],
   "dependencies": {
     "@vsix-scout/core": "workspace:*",
+    "@vsix-scout/shared": "workspace:*",
     "zod": "^4.4.3"
   }
 }

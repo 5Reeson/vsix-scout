@@ -1,0 +1,296 @@
+import { readFile } from 'node:fs/promises';
+
+import type { ScoutError } from '@vsix-scout/core';
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  HISTORY_QUERY_FLAGS,
+  MARKETPLACE_QUERY_URL,
+  MarketplaceProvider,
+  parseMarketplaceExtensionReference,
+} from '../src/index.js';
+
+const fixtureRoot = new URL('../../../tests/fixtures/', import.meta.url);
+
+async function readFixture(relativePath: string): Promise<unknown> {
+  return JSON.parse(
+    await readFile(new URL(relativePath, fixtureRoot), 'utf8'),
+  ) as unknown;
+}
+
+function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  headers.set('content-type', 'application/json');
+  return new Response(JSON.stringify(value), { ...init, headers });
+}
+
+describe('MarketplaceProvider', () => {
+  it('queries historical metadata with the verified Marketplace contract', async () => {
+    const fixture = await readFixture('marketplace/universal-prettier.json');
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(fixture));
+    const provider = new MarketplaceProvider({ fetch: fetchMock });
+
+    const record = await provider.getExtension(
+      parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+    );
+
+    expect(record.extension.id).toBe('esbenp.prettier-vscode');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(MARKETPLACE_QUERY_URL);
+    expect(init).toMatchObject({ method: 'POST', redirect: 'manual' });
+    expect(new Headers(init?.headers).get('accept')).toBe(
+      'application/json;api-version=3.0-preview.1',
+    );
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      filters: [
+        {
+          criteria: [{ filterType: 7, value: 'esbenp.prettier-vscode' }],
+          pageNumber: 1,
+          pageSize: 1,
+        },
+      ],
+      flags: HISTORY_QUERY_FLAGS,
+    });
+  });
+
+  it('fetches a missing engine manifest and falls back after a stale CDN URL', async () => {
+    const metadata = await readFixture(
+      'marketplace/engine-fallback-python.json',
+    );
+    const manifest = await readFixture('manifests/python-0.7.0.json');
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === MARKETPLACE_QUERY_URL) {
+        return jsonResponse(metadata);
+      }
+      if (url.includes('gallerycdn.vsassets.io')) {
+        return new Response(null, { status: 404 });
+      }
+      if (url.includes('gallery.vsassets.io')) {
+        return jsonResponse(manifest);
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    const provider = new MarketplaceProvider({ fetch: fetchMock });
+
+    const record = await provider.getExtension(
+      parseMarketplaceExtensionReference('ms-python.python'),
+    );
+
+    expect(record.versions[0]).toMatchObject({
+      version: '0.7.0',
+      engine: '^1.9.0',
+      engineSource: 'manifest',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('leaves the engine explicitly missing when both manifest locations are gone', async () => {
+    const metadata = await readFixture(
+      'marketplace/engine-fallback-python.json',
+    );
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input) === MARKETPLACE_QUERY_URL
+        ? jsonResponse(metadata)
+        : new Response(null, { status: 404 }),
+    );
+    const provider = new MarketplaceProvider({ fetch: fetchMock });
+
+    const record = await provider.getExtension(
+      parseMarketplaceExtensionReference('ms-python.python'),
+    );
+
+    expect(record.versions[0]).toMatchObject({ engineSource: 'missing' });
+    expect(record.versions[0]?.engine).toBeUndefined();
+  });
+
+  it('honors Retry-After and succeeds after a transient rate limit', async () => {
+    const fixture = await readFixture('marketplace/universal-prettier.json');
+    const sleep = vi.fn(async () => undefined);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, { status: 429, headers: { 'Retry-After': '0' } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(fixture));
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock,
+      maxRetries: 1,
+      sleep,
+    });
+
+    await provider.getExtension(
+      parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+    );
+
+    expect(sleep).toHaveBeenCalledWith(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('classifies exhausted rate limits with stable diagnostic details', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { 'Retry-After': '3' },
+      }),
+    );
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock,
+      maxRetries: 1,
+      sleep: async () => undefined,
+    });
+
+    await expect(
+      provider.getExtension(
+        parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+      ),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'UPSTREAM_UNAVAILABLE',
+      retryable: true,
+      details: {
+        resource: 'metadata',
+        status: 429,
+        attempts: 2,
+        retryAfterMs: 3000,
+      },
+    });
+  });
+
+  it('classifies a request timeout separately from other network failures', async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          );
+        }),
+    );
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock,
+      maxRetries: 0,
+      timeoutMs: 5,
+    });
+
+    await expect(
+      provider.getExtension(
+        parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+      ),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'UPSTREAM_UNAVAILABLE',
+      retryable: true,
+      details: {
+        resource: 'metadata',
+        reason: 'timeout',
+        attempts: 1,
+      },
+    });
+  });
+
+  it('retries and classifies an exhausted transport failure', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError('socket closed'));
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock,
+      maxRetries: 1,
+      sleep: async () => undefined,
+    });
+
+    await expect(
+      provider.getExtension(
+        parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+      ),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'UPSTREAM_UNAVAILABLE',
+      retryable: true,
+      details: {
+        resource: 'metadata',
+        reason: 'network',
+        attempts: 2,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports schema drift and response-size violations as invalid upstream data', async () => {
+    const invalidProvider = new MarketplaceProvider({
+      fetch: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ results: [{}] })),
+    });
+    const oversizedProvider = new MarketplaceProvider({
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{}', {
+          headers: { 'Content-Length': '100' },
+        }),
+      ),
+      maxMetadataBytes: 10,
+    });
+    const streamedOversizedProvider = new MarketplaceProvider({
+      fetch: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response('0123456789')),
+      maxMetadataBytes: 5,
+    });
+    const reference = parseMarketplaceExtensionReference(
+      'esbenp.prettier-vscode',
+    );
+
+    await expect(
+      invalidProvider.getExtension(reference),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'UPSTREAM_INVALID_RESPONSE',
+      details: {
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: 'results.0.extensions' }),
+        ]),
+      },
+    });
+    await expect(
+      oversizedProvider.getExtension(reference),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'UPSTREAM_INVALID_RESPONSE',
+      details: {
+        resource: 'metadata',
+        maxBytes: 10,
+        contentLength: 100,
+      },
+    });
+    await expect(
+      streamedOversizedProvider.getExtension(reference),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'UPSTREAM_INVALID_RESPONSE',
+      details: {
+        resource: 'metadata',
+        maxBytes: 5,
+        receivedBytes: 10,
+      },
+    });
+  });
+
+  it('deduplicates concurrent requests and caches successful records', async () => {
+    const fixture = await readFixture('marketplace/universal-prettier.json');
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(fixture));
+    const provider = new MarketplaceProvider({ fetch: fetchMock });
+    const reference = parseMarketplaceExtensionReference(
+      'esbenp.prettier-vscode',
+    );
+
+    const [first, second] = await Promise.all([
+      provider.getExtension(reference),
+      provider.getExtension(reference),
+    ]);
+    const third = await provider.getExtension(reference);
+
+    expect(first).toBe(second);
+    expect(second).toBe(third);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
