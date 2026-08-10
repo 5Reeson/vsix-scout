@@ -15,10 +15,11 @@ const liveDescribe =
   process.env.VSIX_SCOUT_LIVE_MARKETPLACE === '1' ? describe : describe.skip;
 
 liveDescribe('MarketplaceProvider live service', () => {
-  it('normalizes three representative extensions end to end', async () => {
-    const provider = new MarketplaceProvider({ timeoutMs: 20_000 });
+  const provider = new MarketplaceProvider({ timeoutMs: 20_000 });
 
-    for (const extensionId of LIVE_EXTENSIONS) {
+  it.each(LIVE_EXTENSIONS)(
+    'normalizes %s end to end',
+    async (extensionId) => {
       const record = await provider.getExtension(
         parseMarketplaceExtensionReference(extensionId),
       );
@@ -39,6 +40,7 @@ liveDescribe('MarketplaceProvider live service', () => {
       expect(resolution.extension.id).toBe(extensionId);
       expect(resolution.compatibility.compatible).toBe(true);
       expect(resolution.selected.assets.vsix).toBeDefined();
-    }
-  }, 120_000);
+    },
+    120_000,
+  );
 });

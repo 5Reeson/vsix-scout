@@ -1,6 +1,6 @@
 # CLI guide
 
-VSIX Scout's Phase 3 CLI queries the official Visual Studio Marketplace,
+VSIX Scout's CLI queries the official Visual Studio Marketplace,
 selects versions with the pure compatibility resolver, and can safely download
 the selected VSIX without installing or executing it.
 
@@ -12,7 +12,8 @@ pnpm build
 pnpm cli -- --help
 ```
 
-The package also declares the `vsix-scout` binary for future packaged releases.
+To verify the 0.1.0 package from a clean temporary installation, run
+`pnpm release:check`.
 
 ## Resolve
 
@@ -63,7 +64,9 @@ The default output directory is the current directory. Existing files are
 never overwritten. `--no-download` prints the planned filename and official
 source without making a VSIX request or writing a file.
 
-On success, output includes the byte size and a locally calculated SHA-256.
+On success, output includes the byte size and a locally calculated SHA-256. If
+Marketplace metadata includes a SHA-256, the CLI requires an exact match before
+publishing the file.
 The hash can be independently checked:
 
 ```bash
@@ -83,6 +86,8 @@ Get-FileHash .\artifacts\*.vsix -Algorithm SHA256
   decoded VSIX limit is 512 MiB.
 - Bytes are streamed to a mode-`0600` temporary file in the destination
   directory while SHA-256 is calculated.
+- The complete response must have a valid ZIP signature; an upstream SHA-256 is
+  enforced when Marketplace supplies one.
 - The file is synced and atomically published without overwriting an existing
   destination. Partial temporary files are removed after errors or interruption.
 - VSIX Scout does not extract, load, install, or execute the downloaded file.
@@ -99,8 +104,11 @@ explicitly supplied through `--output`.
 
 The contract is versioned with `schemaVersion: 1` and documented by
 [`schemas/v1/cli-output.schema.json`](../schemas/v1/cli-output.schema.json).
-Breaking changes require a new schema version. Pre-1.0 releases may add optional
-fields to an existing version when documented.
+Breaking changes require a new schema version. Before CLI 1.0, a minor release
+may add optional fields to schema v1; existing fields will not change meaning or
+type within schema v1. Consumers should ignore unknown fields. Removing a field,
+making an optional field required, or changing its meaning/type requires a new
+schema version and changelog entry.
 
 ## Exit codes
 

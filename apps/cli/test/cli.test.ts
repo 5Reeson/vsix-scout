@@ -30,6 +30,7 @@ const record: ExtensionRecord = {
       engineSource: 'property',
       dependencies: ['example.dependency'],
       extensionPack: [],
+      upstreamSha256: 'b'.repeat(64),
       assets: {
         vsix: {
           primaryUri:
@@ -237,7 +238,9 @@ describe('runCli', () => {
       sha256: 'a'.repeat(64),
     });
     expect(output.download.path).not.toContain('/private/internal');
-    expect(test.downloader.download).toHaveBeenCalledOnce();
+    expect(test.downloader.download).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedSha256: 'b'.repeat(64) }),
+    );
   });
 
   it('supports a no-write download plan', async () => {
@@ -283,6 +286,35 @@ describe('runCli', () => {
 
     expect(exitCode).toBe(3);
     expect(output.error.code).toBe('EXTENSION_NOT_FOUND');
+  });
+
+  it('redacts unexpected causes from machine-readable errors', async () => {
+    const secret = 'token=private-value /Users/example/private/file';
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(async () => {
+          throw new Error(secret);
+        }),
+      },
+    });
+
+    const exitCode = await runCli(
+      ['versions', 'example.extension', '--json'],
+      test.dependencies,
+    );
+    const serialized = test.output().stderr;
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(serialized)).toMatchObject({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An unexpected internal error occurred.',
+      },
+    });
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain('/Users/example');
+    expect(serialized).not.toContain('private-value');
   });
 
   it('prints root and command help without network access', async () => {

@@ -1,9 +1,37 @@
 {
   "name": "vsix-scout",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Find the right extension version for your VS Code.",
   "type": "module",
+  "license": "MIT",
+  "author": "VSIX Scout contributors",
+  "homepage": "https://github.com/5Reeson/vsix-scout#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/5Reeson/vsix-scout.git"
+  },
+  "bugs": {
+    "url": "https://github.com/5Reeson/vsix-scout/issues"
+  },
+  "keywords": [
+    "vscode",
+    "vsix",
+    "marketplace",
+    "cli",
+    "offline"
+  ],
+  "bin": {
+    "vsix-scout": "./dist/vsix-scout.js"
+  },
+  "files": [
+    "dist",
+    "schemas/v1/cli-output.schema.json",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=20",
@@ -11,6 +39,7 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "build:release": "pnpm build && node scripts/build-release.mjs",
     "cli": "node apps/cli/dist/bin.js",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty false",
@@ -21,11 +50,17 @@
     "test:live:marketplace": "node scripts/test-live-marketplace.mjs",
     "test:watch": "vitest",
     "probe:marketplace": "node scripts/probe-marketplace.mjs",
+    "package:check": "node scripts/verify-package.mjs",
+    "test:package": "node scripts/test-package.mjs",
+    "security:audit": "pnpm audit --prod --audit-level=high --registry=https://registry.npmjs.org",
+    "release:check": "pnpm check && pnpm build:release && pnpm package:check && pnpm test:package",
+    "prepack": "pnpm build:release",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^20.19.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.8.1",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",

@@ -1,0 +1,51 @@
+name: Bug report
+description: Report reproducible incorrect behavior or a regression
+title: 'bug: '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report vulnerabilities here. Follow SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: VSIX Scout version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system and Node.js version
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and sanitized output
+      description: Remove tokens, private paths, and organization-only data.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, private URLs, and sensitive local paths.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

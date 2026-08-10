@@ -16,7 +16,11 @@ import {
   MarketplaceProvider,
   parseMarketplaceExtensionReference,
 } from '@vsix-scout/marketplace';
-import { CLI_NAME, REQUESTED_TARGET_PLATFORMS } from '@vsix-scout/shared';
+import {
+  CLI_NAME,
+  PROJECT_VERSION,
+  REQUESTED_TARGET_PLATFORMS,
+} from '@vsix-scout/shared';
 
 import { SafeVsixDownloader, type VsixDownloader } from './download.js';
 import {
@@ -111,8 +115,8 @@ export interface CliDependencies {
 
 export const cliMetadata = {
   name: CLI_NAME,
-  version: '0.0.0',
-  phase: 3,
+  version: PROJECT_VERSION,
+  phase: 4,
 } as const;
 
 const ROOT_HELP = `VSIX Scout — find the right extension version for your VS Code.
@@ -449,6 +453,9 @@ export async function runCli(
       const downloader = dependencies.downloader ?? new SafeVsixDownloader();
       const download = await downloader.download({
         asset,
+        ...(result.selected.upstreamSha256 === undefined
+          ? {}
+          : { expectedSha256: result.selected.upstreamSha256 }),
         outputDirectory: resolvePath(
           dependencies.cwd ?? process.cwd(),
           outputOption ?? '.',

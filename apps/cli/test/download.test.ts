@@ -15,6 +15,15 @@ const asset: ExtensionAsset = {
     'https://example.gallery.vsassets.io/_apis/public/gallery/publisher/example/extension/extension/1.0.0/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage',
 };
 const directories: string[] = [];
+const zipHeader = Uint8Array.from([0x50, 0x4b, 0x03, 0x04]);
+
+function vsixBytes(payload: string): Uint8Array {
+  const suffix = new TextEncoder().encode(payload);
+  const bytes = new Uint8Array(zipHeader.byteLength + suffix.byteLength);
+  bytes.set(zipHeader);
+  bytes.set(suffix, zipHeader.byteLength);
+  return bytes;
+}
 
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'vsix-scout-test-'));
@@ -33,7 +42,8 @@ afterEach(async () => {
 describe('SafeVsixDownloader', () => {
   it('validates redirects, streams bytes, and calculates SHA-256', async () => {
     const directory = await temporaryDirectory();
-    const bytes = new TextEncoder().encode('valid-vsix-content');
+    const bytes = vsixBytes('valid-vsix-content');
+    const expectedSha256 = createHash('sha256').update(bytes).digest('hex');
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -57,6 +67,7 @@ describe('SafeVsixDownloader', () => {
 
     const result = await downloader.download({
       asset,
+      expectedSha256,
       outputDirectory: directory,
       fileName: 'example.vsix',
     });
@@ -67,13 +78,76 @@ describe('SafeVsixDownloader', () => {
     expect(result).toMatchObject({
       fileName: 'example.vsix',
       size: bytes.byteLength,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
+      sha256: expectedSha256,
       sourceUrl:
         'https://example.gallerycdn.vsassets.io/extensions/example/extension/download',
     });
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('redirect=true');
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ redirect: 'manual' });
     expect(await readdir(directory)).toEqual(['example.vsix']);
+  });
+
+  it('rejects invalid content and removes the temporary file', async () => {
+    const directory = await temporaryDirectory();
+    const downloader = new SafeVsixDownloader({
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response('not-a-zip')),
+      createId: () => 'invalid',
+    });
+
+    await expect(
+      downloader.download({
+        asset: { primaryUri: asset.primaryUri },
+        outputDirectory: directory,
+        fileName: 'example.vsix',
+      }),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'DOWNLOAD_FAILED',
+      details: { reason: 'invalid-vsix-format' },
+    });
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it('enforces an upstream SHA-256 before publishing the file', async () => {
+    const directory = await temporaryDirectory();
+    const downloader = new SafeVsixDownloader({
+      fetch: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(vsixBytes('valid-content'))),
+      createId: () => 'mismatch',
+    });
+
+    await expect(
+      downloader.download({
+        asset,
+        expectedSha256: 'f'.repeat(64),
+        outputDirectory: directory,
+        fileName: 'example.vsix',
+      }),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'DOWNLOAD_FAILED',
+      details: { reason: 'checksum-mismatch' },
+    });
+    expect(await readdir(directory)).toEqual([]);
+  });
+
+  it('rejects malformed upstream checksums without making a request', async () => {
+    const directory = await temporaryDirectory();
+    const fetchMock = vi.fn<typeof fetch>();
+    const downloader = new SafeVsixDownloader({ fetch: fetchMock });
+
+    await expect(
+      downloader.download({
+        asset,
+        expectedSha256: 'not-a-sha256',
+        outputDirectory: directory,
+        fileName: 'example.vsix',
+      }),
+    ).rejects.toMatchObject<ScoutError>({
+      code: 'DOWNLOAD_FAILED',
+      details: { reason: 'invalid-upstream-checksum' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await readdir(directory)).toEqual([]);
   });
 
   it('rejects a redirect outside the official allowlist', async () => {

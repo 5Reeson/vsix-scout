@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import { ScoutError, type ExtensionAsset } from '@vsix-scout/core';
 import { assertAllowedMarketplaceUrl } from '@vsix-scout/marketplace';
+import { PROJECT_VERSION } from '@vsix-scout/shared';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 512 * 1024 * 1024;
@@ -30,6 +31,7 @@ export interface SafeVsixDownloaderOptions {
 
 export interface VsixDownloadRequest {
   readonly asset: ExtensionAsset;
+  readonly expectedSha256?: string;
   readonly outputDirectory: string;
   readonly fileName: string;
 }
@@ -166,6 +168,32 @@ function validateFileName(fileName: string): void {
   }
 }
 
+function normalizeExpectedSha256(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw downloadError('The upstream VSIX checksum is malformed.', {
+      details: { reason: 'invalid-upstream-checksum' },
+    });
+  }
+  return normalized;
+}
+
+function hasZipSignature(prefix: Uint8Array): boolean {
+  return (
+    prefix.byteLength >= 4 &&
+    prefix[0] === 0x50 &&
+    prefix[1] === 0x4b &&
+    ((prefix[2] === 0x03 && prefix[3] === 0x04) ||
+      (prefix[2] === 0x05 && prefix[3] === 0x06) ||
+      (prefix[2] === 0x07 && prefix[3] === 0x08))
+  );
+}
+
 export class SafeVsixDownloader implements VsixDownloader {
   readonly #fetch: FetchImplementation;
   readonly #timeoutMs: number;
@@ -191,12 +219,13 @@ export class SafeVsixDownloader implements VsixDownloader {
       options.maxRedirects ?? DEFAULT_MAX_REDIRECTS,
       0,
     );
-    this.#userAgent = options.userAgent ?? 'vsix-scout/0.0.0';
+    this.#userAgent = options.userAgent ?? `vsix-scout/${PROJECT_VERSION}`;
     this.#createId = options.createId ?? randomUUID;
   }
 
   async download(request: VsixDownloadRequest): Promise<VsixDownloadResult> {
     validateFileName(request.fileName);
+    const expectedSha256 = normalizeExpectedSha256(request.expectedSha256);
     const candidates = downloadCandidates(request.asset);
     if (candidates.length === 0) {
       throw downloadError('The selected extension version has no VSIX asset.', {
@@ -235,16 +264,24 @@ export class SafeVsixDownloader implements VsixDownloader {
     let lastError: ScoutError | undefined;
     for (const candidate of candidates) {
       try {
-        return await this.#downloadCandidate(candidate, request);
+        return await this.#downloadCandidate(
+          candidate,
+          request,
+          expectedSha256,
+        );
       } catch (error) {
         if (error instanceof ScoutError) {
           if (error.code === 'UNSAFE_RESOURCE_URL') {
             throw error;
           }
           if (
-            ['size-limit', 'output-exists', 'publish-file'].includes(
-              String(error.details?.reason),
-            )
+            [
+              'size-limit',
+              'output-exists',
+              'publish-file',
+              'checksum-mismatch',
+              'invalid-upstream-checksum',
+            ].includes(String(error.details?.reason))
           ) {
             throw error;
           }
@@ -266,6 +303,7 @@ export class SafeVsixDownloader implements VsixDownloader {
   async #downloadCandidate(
     initialUrl: string,
     request: VsixDownloadRequest,
+    expectedSha256: string | undefined,
   ): Promise<VsixDownloadResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
@@ -302,6 +340,8 @@ export class SafeVsixDownloader implements VsixDownloader {
       const reader = response.body.getReader();
       const hash = createHash('sha256');
       let size = 0;
+      const prefix = new Uint8Array(4);
+      let prefixLength = 0;
 
       try {
         while (true) {
@@ -321,6 +361,14 @@ export class SafeVsixDownloader implements VsixDownloader {
               },
             });
           }
+          if (prefixLength < prefix.byteLength) {
+            const prefixBytes = value.subarray(
+              0,
+              Math.min(value.byteLength, prefix.byteLength - prefixLength),
+            );
+            prefix.set(prefixBytes, prefixLength);
+            prefixLength += prefixBytes.byteLength;
+          }
           await writeAll(file, value);
           hash.update(value);
         }
@@ -328,6 +376,20 @@ export class SafeVsixDownloader implements VsixDownloader {
       } finally {
         reader.releaseLock();
         await file.close();
+      }
+
+      if (!hasZipSignature(prefix)) {
+        throw downloadError('The downloaded resource is not a VSIX ZIP file.', {
+          details: { reason: 'invalid-vsix-format' },
+        });
+      }
+
+      const sha256 = hash.digest('hex');
+      if (expectedSha256 !== undefined && sha256 !== expectedSha256) {
+        throw downloadError(
+          'The downloaded VSIX does not match the Marketplace SHA-256.',
+          { details: { reason: 'checksum-mismatch' } },
+        );
       }
 
       try {
@@ -354,7 +416,7 @@ export class SafeVsixDownloader implements VsixDownloader {
         path: destinationPath,
         sourceUrl: finalUrl,
         size,
-        sha256: hash.digest('hex'),
+        sha256,
       };
     } catch (error) {
       if (error instanceof ScoutError) {

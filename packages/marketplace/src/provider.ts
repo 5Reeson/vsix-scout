@@ -5,7 +5,7 @@ import {
   type ExtensionRecord,
   type MarketplaceSource,
 } from '@vsix-scout/core';
-import type { ExtensionReference } from '@vsix-scout/shared';
+import { PROJECT_VERSION, type ExtensionReference } from '@vsix-scout/shared';
 import { ZodError } from 'zod';
 
 import {
@@ -260,7 +260,7 @@ export class MarketplaceProvider implements ExtensionProvider {
       options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS,
       0,
     );
-    this.#userAgent = options.userAgent ?? 'vsix-scout/0.0.0';
+    this.#userAgent = options.userAgent ?? `vsix-scout/${PROJECT_VERSION}`;
     this.#now = options.now ?? Date.now;
     this.#sleep =
       options.sleep ??
