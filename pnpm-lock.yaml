@@ -32,6 +32,12 @@ importers:
 
   apps/cli:
     dependencies:
+      '@vsix-scout/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@vsix-scout/marketplace':
+        specifier: workspace:*
+        version: link:../../packages/marketplace
       '@vsix-scout/shared':
         specifier: workspace:*
         version: link:../../packages/shared

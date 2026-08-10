@@ -74,7 +74,7 @@ export interface ResolutionResult {
   readonly diagnostics: ResolutionDiagnostics;
 }
 
-interface NormalizedRequest {
+export interface NormalizedResolutionRequest {
   readonly vscode: string;
   readonly platform: string;
   readonly channel: ReleaseChannel;
@@ -96,7 +96,20 @@ function invalidInput(
   throw new ScoutError('INVALID_INPUT', message, { details });
 }
 
-function normalizeRequest(request: ResolutionRequest): NormalizedRequest {
+export function validateExactExtensionVersion(value: string): string {
+  const extensionVersion = valid(value);
+  if (extensionVersion === null) {
+    invalidInput('Requested extension version must be a valid SemVer.', {
+      field: 'version',
+      value,
+    });
+  }
+  return extensionVersion;
+}
+
+export function validateResolutionRequest(
+  request: ResolutionRequest,
+): NormalizedResolutionRequest {
   const vscode = valid(request.vscode);
   if (vscode === null) {
     invalidInput('Target VS Code version must be a complete valid SemVer.', {
@@ -123,13 +136,7 @@ function normalizeRequest(request: ResolutionRequest): NormalizedRequest {
 
   let extensionVersion: string | undefined;
   if (request.version !== undefined) {
-    extensionVersion = valid(request.version) ?? undefined;
-    if (extensionVersion === undefined) {
-      invalidInput('Requested extension version must be a valid SemVer.', {
-        field: 'version',
-        value: request.version,
-      });
-    }
+    extensionVersion = validateExactExtensionVersion(request.version);
   }
 
   return {
@@ -163,7 +170,7 @@ function platformMatch(
 
 function evaluateCandidate(
   candidate: ExtensionVersionCandidate,
-  request: NormalizedRequest,
+  request: NormalizedResolutionRequest,
   originalIndex: number,
 ): EligibleCandidate | RejectionCode {
   const normalizedVersion = valid(candidate.version);
@@ -233,7 +240,7 @@ function compareCandidates(a: EligibleCandidate, b: EligibleCandidate): number {
 
 function selectionReasons(
   selected: EligibleCandidate,
-  request: NormalizedRequest,
+  request: NormalizedResolutionRequest,
 ): readonly ResolutionReason[] {
   const reasons: ResolutionReason[] = [
     {
@@ -294,7 +301,7 @@ export function resolveExtension(
   record: ExtensionRecord,
   request: ResolutionRequest,
 ): ResolutionResult {
-  const normalizedRequest = normalizeRequest(request);
+  const normalizedRequest = validateResolutionRequest(request);
   const rejectionCounts = emptyRejectionCounts();
   const eligible: EligibleCandidate[] = [];
 

@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/5Reeson/vsix-scout/schemas/v1/cli-output.schema.json",
+  "title": "VSIX Scout CLI output v1",
+  "oneOf": [
+    { "$ref": "#/$defs/resolve" },
+    { "$ref": "#/$defs/versions" },
+    { "$ref": "#/$defs/inspect" },
+    { "$ref": "#/$defs/download" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "extension": {
+      "type": "object",
+      "required": ["id", "publisher", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "publisher": { "type": "string" },
+        "name": { "type": "string" },
+        "displayName": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["provider", "official"],
+      "properties": {
+        "provider": { "const": "visual-studio-marketplace" },
+        "official": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "filters": {
+      "type": "object",
+      "required": ["channel"],
+      "properties": {
+        "channel": { "enum": ["stable", "pre-release"] },
+        "platform": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "asset": {
+      "type": "object",
+      "properties": {
+        "primaryUri": { "type": "string", "format": "uri" },
+        "fallbackUri": { "type": "string", "format": "uri" }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "versionSummary": {
+      "type": "object",
+      "required": [
+        "version",
+        "channel",
+        "targetPlatform",
+        "publishedAt",
+        "engineSource",
+        "hasVsix"
+      ],
+      "properties": {
+        "version": { "type": "string" },
+        "channel": { "enum": ["stable", "pre-release"] },
+        "targetPlatform": { "type": "string" },
+        "publishedAt": { "type": "string" },
+        "engine": { "type": "string" },
+        "engineSource": { "enum": ["property", "manifest", "missing"] },
+        "hasVsix": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "versionCandidate": {
+      "type": "object",
+      "required": [
+        "version",
+        "targetPlatform",
+        "publishedAt",
+        "channel",
+        "engineSource",
+        "dependencies",
+        "extensionPack",
+        "assets"
+      ],
+      "properties": {
+        "version": { "type": "string" },
+        "targetPlatform": { "type": "string" },
+        "publishedAt": { "type": "string" },
+        "channel": { "enum": ["stable", "pre-release"] },
+        "engine": { "type": "string" },
+        "engineSource": { "enum": ["property", "manifest", "missing"] },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "extensionPack": { "type": "array", "items": { "type": "string" } },
+        "assets": {
+          "type": "object",
+          "properties": {
+            "manifest": { "$ref": "#/$defs/asset" },
+            "vsix": { "$ref": "#/$defs/asset" }
+          },
+          "additionalProperties": false
+        },
+        "upstreamSha256": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "resolutionBase": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "command",
+        "extension",
+        "target",
+        "selected",
+        "source",
+        "compatibility",
+        "diagnostics"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "command": { "enum": ["resolve", "download"] },
+        "extension": { "$ref": "#/$defs/extension" },
+        "target": {
+          "type": "object",
+          "required": ["vscode", "platform", "channel"],
+          "properties": {
+            "vscode": { "type": "string" },
+            "platform": { "type": "string" },
+            "channel": { "enum": ["stable", "pre-release"] },
+            "version": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "selected": {
+          "type": "object",
+          "required": [
+            "version",
+            "engine",
+            "targetPlatform",
+            "channel",
+            "publishedAt"
+          ],
+          "properties": {
+            "version": { "type": "string" },
+            "engine": { "type": "string" },
+            "targetPlatform": { "type": "string" },
+            "channel": { "enum": ["stable", "pre-release"] },
+            "publishedAt": { "type": "string" },
+            "assetUrl": { "type": "string", "format": "uri" },
+            "manifestUrl": { "type": "string", "format": "uri" },
+            "upstreamSha256": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "source": { "$ref": "#/$defs/source" },
+        "compatibility": {
+          "type": "object",
+          "required": [
+            "compatible",
+            "engine",
+            "platformMatch",
+            "reasons",
+            "limitations"
+          ],
+          "properties": {
+            "compatible": { "const": true },
+            "engine": { "type": "string" },
+            "platformMatch": { "enum": ["exact", "universal"] },
+            "reasons": { "type": "array", "items": { "type": "object" } },
+            "limitations": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "diagnostics": { "type": "object" }
+      }
+    },
+    "resolve": {
+      "allOf": [
+        { "$ref": "#/$defs/resolutionBase" },
+        {
+          "type": "object",
+          "properties": { "command": { "const": "resolve" } },
+          "not": { "required": ["download"] }
+        }
+      ]
+    },
+    "versions": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "command",
+        "extension",
+        "source",
+        "filters",
+        "versions"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "command": { "const": "versions" },
+        "extension": { "$ref": "#/$defs/extension" },
+        "source": { "$ref": "#/$defs/source" },
+        "filters": { "$ref": "#/$defs/filters" },
+        "versions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/versionSummary" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "inspect": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "command",
+        "extension",
+        "source",
+        "filters",
+        "summary",
+        "versions"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "command": { "const": "inspect" },
+        "extension": { "$ref": "#/$defs/extension" },
+        "source": { "$ref": "#/$defs/source" },
+        "filters": { "$ref": "#/$defs/filters" },
+        "summary": {
+          "type": "object",
+          "required": [
+            "variantCount",
+            "distinctVersionCount",
+            "platforms",
+            "missingEngineCount"
+          ],
+          "properties": {
+            "variantCount": { "type": "integer", "minimum": 0 },
+            "distinctVersionCount": { "type": "integer", "minimum": 0 },
+            "platforms": { "type": "array", "items": { "type": "string" } },
+            "missingEngineCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "versions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/versionCandidate" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "download": {
+      "allOf": [
+        { "$ref": "#/$defs/resolutionBase" },
+        {
+          "type": "object",
+          "required": ["download"],
+          "properties": {
+            "command": { "const": "download" },
+            "download": {
+              "type": "object",
+              "required": ["status", "fileName", "path", "sourceUrl"],
+              "properties": {
+                "status": { "enum": ["planned", "downloaded"] },
+                "fileName": { "type": "string" },
+                "path": { "type": "string" },
+                "sourceUrl": { "type": "string", "format": "uri" },
+                "size": { "type": "integer", "minimum": 0 },
+                "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": { "status": { "const": "downloaded" } }
+                  },
+                  "then": { "required": ["size", "sha256"] }
+                }
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "required": ["schemaVersion", "error"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "error": {
+          "type": "object",
+          "required": ["code", "message", "retryable"],
+          "properties": {
+            "code": {
+              "enum": [
+                "INVALID_INPUT",
+                "EXTENSION_NOT_FOUND",
+                "NO_COMPATIBLE_VERSION",
+                "UPSTREAM_UNAVAILABLE",
+                "UPSTREAM_INVALID_RESPONSE",
+                "UNSAFE_RESOURCE_URL",
+                "DOWNLOAD_FAILED",
+                "INTERNAL_ERROR"
+              ]
+            },
+            "message": { "type": "string" },
+            "retryable": { "type": "boolean" },
+            "details": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

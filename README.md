@@ -6,10 +6,9 @@ VSIX Scout will resolve the newest compatible historical VSIX for a target VS
 Code version and platform, explain the choice, and download only from validated
 official Marketplace sources.
 
-The project has completed **Phase 2: Marketplace provider**. It can normalize
-official Marketplace references, query and validate historical metadata, and
-recover missing engine metadata from official manifests. User-facing CLI
-commands are planned for Phase 3 and are not implemented yet.
+The project has completed **Phase 3: CLI MVP and safe download**. It can resolve,
+list, and inspect historical extension metadata, then safely download the
+selected official VSIX with a locally calculated SHA-256.
 
 ## Repository layout
 
@@ -33,6 +32,24 @@ Requirements:
 pnpm install
 pnpm check
 pnpm build
+pnpm cli -- --help
+```
+
+Resolve without downloading:
+
+```bash
+pnpm cli -- resolve esbenp.prettier-vscode \
+  --vscode 1.101.0 \
+  --platform darwin-arm64
+```
+
+Download to a directory:
+
+```bash
+pnpm cli -- download esbenp.prettier-vscode \
+  --vscode 1.101.0 \
+  --platform darwin-arm64 \
+  --output ./artifacts
 ```
 
 Optional live metadata probe:
@@ -56,6 +73,8 @@ fixtures and do not require network access.
 - [Marketplace protocol notes](docs/marketplace-protocol.md)
 - [Marketplace provider policy](docs/marketplace-provider.md)
 - [Resolver policy](docs/resolver-policy.md)
+- [CLI and safe download guide](docs/cli.md)
+- [CLI JSON schema v1](schemas/v1/cli-output.schema.json)
 - [Fixture provenance](tests/fixtures/README.md)
 
 ## Security boundary

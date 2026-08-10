@@ -19,6 +19,14 @@ export function isAllowedMarketplaceUrl(value: string): boolean {
     return false;
   }
 
+  if (
+    url.username !== '' ||
+    url.password !== '' ||
+    (url.port !== '' && url.port !== '443')
+  ) {
+    return false;
+  }
+
   const hostname = url.hostname.toLowerCase();
   return (
     EXACT_ALLOWED_HOSTS.has(hostname) ||

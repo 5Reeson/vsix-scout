@@ -15,6 +15,8 @@ describe('isAllowedMarketplaceUrl', () => {
     'http://marketplace.visualstudio.com/file',
     'https://marketplace.visualstudio.com.evil.example/file',
     'https://gallery.vsassets.io/file',
+    'https://user:password@marketplace.visualstudio.com/file',
+    'https://marketplace.visualstudio.com:444/file',
     'https://example.com/file',
     'not a URL',
   ])('rejects unsafe or malformed hosts: %s', (url) => {

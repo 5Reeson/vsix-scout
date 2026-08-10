@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "cli": "node apps/cli/dist/bin.js",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",

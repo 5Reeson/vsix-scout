@@ -8,6 +8,7 @@ export const ERROR_CODES = [
   'UPSTREAM_INVALID_RESPONSE',
   'UNSAFE_RESOURCE_URL',
   'DOWNLOAD_FAILED',
+  'INTERNAL_ERROR',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
