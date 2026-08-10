@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = new URL('../', import.meta.url);
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCommand = 'npm';
 const packageJson = JSON.parse(
   await readFile(new URL('package.json', repositoryRoot), 'utf8'),
 );
@@ -23,6 +23,7 @@ function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: repositoryRoot,
     encoding: 'utf8',
+    shell: process.platform === 'win32' && command === npmCommand,
   });
   if (result.status !== 0) {
     throw new Error(

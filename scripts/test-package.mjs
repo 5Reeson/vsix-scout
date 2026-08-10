@@ -6,10 +6,14 @@ import { join } from 'node:path';
 const repositoryRoot = new URL('../', import.meta.url);
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'vsix-scout-package-'));
 const npmCache = join(temporaryDirectory, 'npm-cache');
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCommand = 'npm';
 
 function run(command, args, cwd = repositoryRoot) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    shell: process.platform === 'win32' && command === npmCommand,
+  });
   if (result.status !== 0) {
     throw new Error(
       `${command} ${args.join(' ')} failed:\n${result.error?.message ?? result.stderr ?? result.stdout}`,
