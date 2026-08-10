@@ -6,15 +6,15 @@ VSIX Scout will resolve the newest compatible historical VSIX for a target VS
 Code version and platform, explain the choice, and download only from validated
 official Marketplace sources.
 
-The project is currently at **Phase 0: protocol validation and engineering
-baseline**. The resolver and user-facing CLI commands are planned for later
-phases and are not implemented yet.
+The project has completed **Phase 1: pure compatibility resolver**. Marketplace
+network access and user-facing CLI commands are planned for later phases and are
+not implemented yet.
 
 ## Repository layout
 
 ```text
 apps/cli/            CLI package boundary
-packages/core/       Provider-independent domain models and errors
+packages/core/       Pure resolver, domain models, explanations, and errors
 packages/marketplace Marketplace schemas, normalization, and URL policy
 packages/shared/     Cross-package constants and types
 tests/fixtures/      Minimized real Marketplace samples
@@ -47,6 +47,7 @@ fixtures and do not require network access.
 
 - [Project definition and roadmap](PROJECT.md)
 - [Marketplace protocol notes](docs/marketplace-protocol.md)
+- [Resolver policy](docs/resolver-policy.md)
 - [Fixture provenance](tests/fixtures/README.md)
 
 ## Security boundary
