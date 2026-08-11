@@ -1,0 +1,23 @@
+{
+  "name": "@vsix-scout/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "vsix-scout": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@vsix-scout/core": "workspace:*",
+    "@vsix-scout/marketplace": "workspace:*",
+    "@vsix-scout/shared": "workspace:*"
+  }
+}
