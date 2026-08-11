@@ -4,7 +4,7 @@ This project follows [Semantic Versioning](https://semver.org/). Before 1.0,
 minor releases may change CLI behavior; the versioned JSON compatibility policy
 is documented separately in the CLI guide.
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-08-11
 
 ### Added
 
