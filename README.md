@@ -15,6 +15,9 @@ Visual Studio Marketplace directly, reuses the same resolver, and provides a
 validated Microsoft download link without reading the VSIX into application
 memory.
 
+- [Open the VSIX Scout Web app](https://5reeson.github.io/vsix-scout/)
+- [View `vsix-scout` on npm](https://www.npmjs.com/package/vsix-scout)
+
 ## Install
 
 ```bash

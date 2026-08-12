@@ -65,9 +65,10 @@ export const zh = {
   'result.hashNote': 'Marketplace metadata 报告值，浏览器未验证下载文件。',
   'result.copySha': '复制 SHA-256',
 
-  'versions.summary': '查看其他兼容版本 ({count})',
+  'versions.summary': '查看其他兼容版本',
   'versions.none': '没有其他版本同时满足当前条件。',
   'versions.showMore': '显示更多',
+  'versions.loadingMore': '正在查询更早版本',
   'versions.officialVsix': '官方 VSIX ↗',
 
   'footer.line1':

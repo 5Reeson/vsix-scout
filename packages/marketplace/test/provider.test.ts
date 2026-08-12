@@ -151,6 +151,83 @@ describe('MarketplaceProvider', () => {
     expect(record.versions[0]?.engine).toBeUndefined();
   });
 
+  it('loads missing manifests in non-repeating batches scoped to the requested channel', async () => {
+    const metadata = structuredClone(
+      await readFixture('marketplace/engine-fallback-python.json'),
+    ) as {
+      results: Array<{
+        extensions: Array<{ versions: Array<Record<string, unknown>> }>;
+      }>;
+    };
+    const versions = metadata.results[0]?.extensions[0]?.versions;
+    if (versions === undefined || versions[0] === undefined) {
+      throw new Error('Manifest batching fixture is incomplete.');
+    }
+    const template = versions[0];
+    versions.splice(
+      0,
+      1,
+      ...['3.0.0', '2.0.0', '1.0.0'].map((version, index) => ({
+        ...template,
+        version,
+        assetUri: `https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/${version}/${index}`,
+        fallbackAssetUri: `https://ms-python.gallery.vsassets.io/_apis/public/gallery/publisher/ms-python/extension/python/${version}/assetbyname`,
+        files: undefined,
+        properties:
+          index === 1
+            ? [
+                {
+                  key: 'Microsoft.VisualStudio.Code.PreRelease',
+                  value: 'true',
+                },
+              ]
+            : [],
+      })),
+    );
+
+    const manifestRequests: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === MARKETPLACE_QUERY_URL) return jsonResponse(metadata);
+      manifestRequests.push(url);
+      return jsonResponse({ engines: { vscode: '^1.90.0' } });
+    });
+    const provider = new MarketplaceProvider({ fetch: fetchMock });
+    const reference = parseMarketplaceExtensionReference('ms-python.python');
+
+    const first = await provider.getExtension(reference, {
+      channel: 'stable',
+      platform: 'win32-x64',
+      manifestLimit: 1,
+    });
+    expect(
+      first.versions.filter((version) => version.engine !== undefined),
+    ).toHaveLength(1);
+    expect(
+      provider.hasPendingManifests(reference, {
+        channel: 'stable',
+        platform: 'win32-x64',
+      }),
+    ).toBe(true);
+
+    const second = await provider.getExtension(reference, {
+      channel: 'stable',
+      platform: 'win32-x64',
+      manifestLimit: 1,
+    });
+    expect(
+      second.versions.filter((version) => version.engine !== undefined),
+    ).toHaveLength(2);
+    expect(
+      provider.hasPendingManifests(reference, {
+        channel: 'stable',
+        platform: 'win32-x64',
+      }),
+    ).toBe(false);
+    expect(manifestRequests).toHaveLength(2);
+    expect(new Set(manifestRequests).size).toBe(2);
+  });
+
   it('honors Retry-After and succeeds after a transient rate limit', async () => {
     const fixture = await readFixture('marketplace/universal-prettier.json');
     const sleep = vi.fn(async () => undefined);

@@ -28,7 +28,7 @@ export const en = {
   'form.resolve': 'Resolve compatibility',
   'form.resolving': 'Resolving compatibility',
   'form.note':
-    'Lookup only — no downloads. Your most recently used VS Code version and platform are stored only on this device.',
+    'Lookup only, no downloads. Your most recently used VS Code version and platform are stored only on this device.',
 
   'reason.channelMatch':
     'This version belongs to the requested {channel} channel.',
@@ -73,9 +73,10 @@ export const en = {
     'Value reported by Marketplace metadata; the browser has not verified the downloaded file.',
   'result.copySha': 'Copy SHA-256',
 
-  'versions.summary': 'See other compatible versions ({count})',
+  'versions.summary': 'See other compatible versions',
   'versions.none': 'No other version satisfies the current criteria.',
   'versions.showMore': 'Show more',
+  'versions.loadingMore': 'Querying older versions',
   'versions.officialVsix': 'Official VSIX ↗',
 
   'footer.line1':

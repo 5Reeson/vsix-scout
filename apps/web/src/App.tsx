@@ -38,29 +38,34 @@ const provider = new MarketplaceProvider({
 const DEFAULT_VSCODE = '1.95.0';
 const DEFAULT_PLATFORM: RequestedTargetPlatform = 'win32-x64';
 const INITIAL_VISIBLE_VERSIONS = 8;
+const MANIFEST_BATCH_SIZE = 20;
 // After resolving, park the result title this far down the viewport so the
 // query form above and the result below stay visible at the same time.
 const RESULT_SCROLL_FRACTION = 0.35;
 
-const ASCII_TEXTURE = String.raw`
-0  1   1 0 1   1   101 1 0            0 1 1 1 1 -----◇
-0 1 1. 1  ----- ◇   ←-01.0        ◇  -----------◇
-0 1 1 1 0                             └--------┐
-1 .95.0      0----------  1.101.0          1.1101.0
-1 1 1 2 1.1  -----------  0.011111.1        │
+const ASCII_SCENE = String.raw`
+0  1   101 1 0       0 1 1 1 1 -----◇             1.95.0 -----> 1.101.0               0 1 1 0 1       ◇---------◇
+1 1. 1 -----◇   ←-01.0        └------┐         { } <---->       0.011111.1           1 0 1 1 0         └------┐
+0 1 1 1 0         0----------        │             ◇------------◇                     1.1101.0                │
+1.92.2 ----> stable    0 1 0 1 1 ----┘        manifest.get() --> engine             universal ----> win32-x64
 
-{  }  <---->     ┌───────────────────────────────┐
-0 -------->  ┌─  │ { ext: ms-python.python  ---->│
-1 ---○---->  │   │   id: ms-python.python   ---->│
-0 -------->  │ ↓ │   publisher: microsoft  -----│
-1 ---○---->  └───│   type: extension       ---->│
-                  │   engines.vscode ^1.101.0     │
-0 1 1 1       ┌──┴──────────────┬────────────────┤
-1.101.0       │   ┌──────────┐  │ versions: [   │
-0 ------>     │   │  ╲       │  │   12.4.0      │
-1 ------>     │   │    ╲     │  │   12.3.1      │
-0 ------>     │   └──────────┘  │   12.2.0      │
-               └────────────────┴───────────────┘
+┌──────────────────────────────────┐             0 ------->   1 ------->           ┌──────────────────────────────────┐
+│ { ext: ms-python.python  ------->│                                                     │ { target: win32-x64          ---->│
+│   id: ms-python.python   ------->│             0 1 1 1   1.101.0                  │   channel: stable             ---->│
+│   publisher: microsoft  ---------│             ┌───────────────┐                  │   vscode: 1.95.0              ---->│
+│   type: extension        ------->│             │ resolve()     │                  │   source: marketplace         ---->│
+│   engines.vscode ^1.101.0        │             └───────┬───────┘                  │   official: true                   │
+└───────────────┬──────────────────┘                     │                          └─────────────────┬────────────────┘
+                └-------------> compatible <-------------┘                                            │
+0x01 0x10 0x11      asset: VSIXPackage ------------->            schema: v1        │       official.source = true
+
+0 1 1 1       ┌──────────────────┬──────────────────┐          ◇--------◇          ┌──────────────────┴────────────────┐
+1.101.0       │   ┌──────────┐   │ versions: [     │       1 0 1 0 1 1            │ selected: 2024.18.1              │
+0 ------>     │   │  ╲       │   │   2024.18.1     │       0 --------->            │ platform: win32-x64              │
+1 ------>     │   │    ╲     │   │   2024.16.0     │       1 ---○----->            │ download: official VSIX  ------>│
+0 ------>     │   └──────────┘   │   2024.14.0     │       0 --------->            └───────────────────────────────────┘
+              └──────────────────┴──────────────────┘          0.011111.1                  1 0 1 1 0 1  ----->
+sha256.reported ----> 9f 2a 71 0c       0 1 0 0 1 1        fallback: universal      cache.ttl ----> 300s
 `;
 
 interface FormState {
@@ -73,8 +78,28 @@ interface FormState {
 type QueryState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
-  | { readonly status: 'success'; readonly data: WebResolution }
+  | {
+      readonly status: 'success';
+      readonly data: WebResolution;
+      readonly submittedForm: FormState;
+    }
   | { readonly status: 'error'; readonly error: WebErrorMessage };
+
+type ChannelQueryState = Readonly<Record<ReleaseChannel, QueryState>>;
+type ChannelNumberState = Readonly<Record<ReleaseChannel, number>>;
+
+const IDLE_QUERIES: ChannelQueryState = {
+  stable: { status: 'idle' },
+  'pre-release': { status: 'idle' },
+};
+
+function queryScope(form: FormState): string {
+  return JSON.stringify([
+    form.extension.trim().toLowerCase(),
+    form.vscode.trim(),
+    form.platform,
+  ]);
+}
 
 function isPlatform(value: string | null): value is RequestedTargetPlatform {
   return (
@@ -195,25 +220,100 @@ function scrollToResult(): void {
 export function App() {
   const { t } = useLanguage();
   const [form, setForm] = useState<FormState>(initialFormState);
-  const [query, setQuery] = useState<QueryState>({ status: 'idle' });
-  const [visibleVersions, setVisibleVersions] = useState(
-    INITIAL_VISIBLE_VERSIONS,
-  );
+  const [queries, setQueries] = useState<ChannelQueryState>(IDLE_QUERIES);
+  const [visibleVersions, setVisibleVersions] = useState<ChannelNumberState>({
+    stable: INITIAL_VISIBLE_VERSIONS,
+    'pre-release': INITIAL_VISIBLE_VERSIONS,
+  });
+  const [loadingMoreChannel, setLoadingMoreChannel] =
+    useState<ReleaseChannel | null>(null);
   const [copyStatus, setCopyStatus] = useState('');
   const initialQueryStarted = useRef(false);
+  const cachedScope = useRef<string | null>(null);
+  const requestSequence = useRef<ChannelNumberState>({
+    stable: 0,
+    'pre-release': 0,
+  });
+
+  const query = queries[form.channel];
+
+  function setChannelQuery(channel: ReleaseChannel, next: QueryState): void {
+    setQueries((current) => ({ ...current, [channel]: next }));
+  }
 
   async function runQuery(nextForm: FormState): Promise<void> {
-    setQuery({ status: 'loading' });
-    setVisibleVersions(INITIAL_VISIBLE_VERSIONS);
+    const nextScope = queryScope(nextForm);
+    const requestId = requestSequence.current[nextForm.channel] + 1;
+    requestSequence.current = {
+      ...requestSequence.current,
+      [nextForm.channel]: requestId,
+    };
+    if (cachedScope.current !== nextScope) {
+      cachedScope.current = nextScope;
+      setQueries({
+        ...IDLE_QUERIES,
+        [nextForm.channel]: { status: 'loading' },
+      });
+      setVisibleVersions({
+        stable: INITIAL_VISIBLE_VERSIONS,
+        'pre-release': INITIAL_VISIBLE_VERSIONS,
+      });
+    } else {
+      setChannelQuery(nextForm.channel, { status: 'loading' });
+      setVisibleVersions((current) => ({
+        ...current,
+        [nextForm.channel]: INITIAL_VISIBLE_VERSIONS,
+      }));
+    }
     setCopyStatus('');
     savePreferences(nextForm);
     saveShareableQuery(nextForm);
 
     try {
-      const data = await resolveWebQuery(provider, nextForm);
-      setQuery({ status: 'success', data });
+      const data = await resolveWebQuery(provider, nextForm, {
+        manifestLimit: MANIFEST_BATCH_SIZE,
+      });
+      if (requestSequence.current[nextForm.channel] !== requestId) return;
+      setChannelQuery(nextForm.channel, {
+        status: 'success',
+        data,
+        submittedForm: nextForm,
+      });
     } catch (error) {
-      setQuery({ status: 'error', error: webErrorMessage(error) });
+      if (requestSequence.current[nextForm.channel] !== requestId) return;
+      setChannelQuery(nextForm.channel, {
+        status: 'error',
+        error: webErrorMessage(error),
+      });
+    }
+  }
+
+  async function showMore(): Promise<void> {
+    if (query.status !== 'success') return;
+    const channel = query.submittedForm.channel;
+    setLoadingMoreChannel(channel);
+    try {
+      const data = query.data.hasPendingManifests
+        ? await resolveWebQuery(provider, query.submittedForm, {
+            manifestLimit: MANIFEST_BATCH_SIZE,
+          })
+        : query.data;
+      setChannelQuery(channel, {
+        status: 'success',
+        data,
+        submittedForm: query.submittedForm,
+      });
+      setVisibleVersions((current) => ({
+        ...current,
+        [channel]: current[channel] + INITIAL_VISIBLE_VERSIONS,
+      }));
+    } catch (error) {
+      setChannelQuery(channel, {
+        status: 'error',
+        error: webErrorMessage(error),
+      });
+    } finally {
+      setLoadingMoreChannel(null);
     }
   }
 
@@ -232,7 +332,7 @@ export function App() {
         !isPlatform(platform) ||
         (channel !== null && channel !== 'stable' && channel !== 'pre-release')
       ) {
-        setQuery({
+        setChannelQuery(form.channel, {
           status: 'error',
           error: {
             titleKey: 'error.shareInvalid.title',
@@ -289,7 +389,11 @@ export function App() {
             <ResolveForm
               form={form}
               isLoading={isLoading}
-              onChange={setForm}
+              onChange={(nextForm) => {
+                setForm(nextForm);
+                setCopyStatus('');
+              }}
+              onCommit={saveShareableQuery}
               onSubmit={submit}
               hasError={query.status === 'error'}
             />
@@ -311,12 +415,9 @@ export function App() {
             {query.status === 'success' && (
               <RecommendedResult
                 data={query.data}
-                visibleVersions={visibleVersions}
-                onShowMore={() =>
-                  setVisibleVersions(
-                    (value) => value + INITIAL_VISIBLE_VERSIONS,
-                  )
-                }
+                visibleVersions={visibleVersions[form.channel]}
+                isLoadingMore={loadingMoreChannel === form.channel}
+                onShowMore={() => void showMore()}
                 onCopy={handleCopy}
               />
             )}
@@ -375,7 +476,6 @@ function SiteHeader() {
 function HeroAsciiReveal() {
   const { t } = useLanguage();
   const heroRef = useRef<HTMLElement>(null);
-  const texturePanels = ['left', 'center', 'right'] as const;
 
   function updateSpotlight(event: ReactPointerEvent<HTMLElement>): void {
     const hero = heroRef.current;
@@ -399,18 +499,10 @@ function HeroAsciiReveal() {
       aria-labelledby="page-title"
     >
       <div className="ascii-layer ascii-base" aria-hidden="true">
-        {texturePanels.map((panel) => (
-          <pre className={`ascii-panel ascii-panel-${panel}`} key={panel}>
-            {ASCII_TEXTURE}
-          </pre>
-        ))}
+        <pre className="ascii-scene">{ASCII_SCENE}</pre>
       </div>
       <div className="ascii-layer ascii-reveal" aria-hidden="true">
-        {texturePanels.map((panel) => (
-          <pre className={`ascii-panel ascii-panel-${panel}`} key={panel}>
-            {ASCII_TEXTURE}
-          </pre>
-        ))}
+        <pre className="ascii-scene">{ASCII_SCENE}</pre>
       </div>
       <div className="hero-copy">
         <h1 id="page-title">VSIX Scout</h1>
@@ -438,12 +530,14 @@ function ResolveForm({
   form,
   isLoading,
   onChange,
+  onCommit,
   onSubmit,
   hasError,
 }: {
   readonly form: FormState;
   readonly isLoading: boolean;
   readonly onChange: (form: FormState) => void;
+  readonly onCommit: (form: FormState) => void;
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly hasError: boolean;
 }) {
@@ -468,6 +562,9 @@ function ResolveForm({
           onChange={(event) =>
             onChange({ ...form, extension: event.target.value })
           }
+          onBlur={(event) =>
+            onCommit({ ...form, extension: event.currentTarget.value })
+          }
           disabled={isLoading}
         />
       </div>
@@ -487,6 +584,9 @@ function ResolveForm({
           onChange={(event) =>
             onChange({ ...form, vscode: event.target.value })
           }
+          onBlur={(event) =>
+            onCommit({ ...form, vscode: event.currentTarget.value })
+          }
           disabled={isLoading}
         />
       </div>
@@ -496,7 +596,11 @@ function ResolveForm({
         <PlatformSelect
           value={form.platform}
           disabled={isLoading}
-          onChange={(platform) => onChange({ ...form, platform })}
+          onChange={(platform) => {
+            const nextForm = { ...form, platform };
+            onChange(nextForm);
+            onCommit(nextForm);
+          }}
         />
       </div>
 
@@ -510,7 +614,11 @@ function ResolveForm({
                 name="channel"
                 value={channel}
                 checked={form.channel === channel}
-                onChange={() => onChange({ ...form, channel })}
+                onChange={() => {
+                  const nextForm = { ...form, channel };
+                  onChange(nextForm);
+                  onCommit(nextForm);
+                }}
               />
               <span>{channel}</span>
             </label>
@@ -739,11 +847,13 @@ function ErrorState({ error }: { readonly error: WebErrorMessage }) {
 function RecommendedResult({
   data,
   visibleVersions,
+  isLoadingMore,
   onShowMore,
   onCopy,
 }: {
   readonly data: WebResolution;
   readonly visibleVersions: number;
+  readonly isLoadingMore: boolean;
   readonly onShowMore: () => void;
   readonly onCopy: (value: string, label: string) => Promise<void>;
 }) {
@@ -868,8 +978,11 @@ function RecommendedResult({
 
       <OtherCompatibleVersions
         versions={shownVersions}
-        total={otherVersions.length}
-        hasMore={shownVersions.length < otherVersions.length}
+        hasMore={
+          shownVersions.length < otherVersions.length ||
+          data.hasPendingManifests
+        }
+        isLoadingMore={isLoadingMore}
         onShowMore={onShowMore}
       />
     </article>
@@ -878,20 +991,20 @@ function RecommendedResult({
 
 function OtherCompatibleVersions({
   versions,
-  total,
   hasMore,
+  isLoadingMore,
   onShowMore,
 }: {
   readonly versions: readonly WebResolvedVersion[];
-  readonly total: number;
   readonly hasMore: boolean;
+  readonly isLoadingMore: boolean;
   readonly onShowMore: () => void;
 }) {
   const { t } = useLanguage();
   return (
     <details className="other-versions">
-      <summary>{t('versions.summary', { count: total })}</summary>
-      {total === 0 ? (
+      <summary>{t('versions.summary')}</summary>
+      {versions.length === 0 && !hasMore ? (
         <p>{t('versions.none')}</p>
       ) : (
         <>
@@ -904,8 +1017,15 @@ function OtherCompatibleVersions({
             ))}
           </ol>
           {hasMore && (
-            <button className="show-more" type="button" onClick={onShowMore}>
-              {t('versions.showMore')}
+            <button
+              className="show-more"
+              type="button"
+              onClick={onShowMore}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore
+                ? t('versions.loadingMore')
+                : t('versions.showMore')}
             </button>
           )}
         </>

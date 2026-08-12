@@ -10,6 +10,7 @@ import {
 import {
   assertAllowedMarketplaceUrl,
   parseMarketplaceExtensionReference,
+  type MarketplaceExtensionRequestOptions,
 } from '@vsix-scout/marketplace';
 import {
   REQUESTED_TARGET_PLATFORMS,
@@ -32,6 +33,18 @@ export interface WebResolution {
   readonly record: ExtensionRecord;
   readonly selected: WebResolvedVersion;
   readonly compatibleVersions: readonly WebResolvedVersion[];
+  readonly hasPendingManifests: boolean;
+}
+
+interface IncrementalExtensionProvider extends ExtensionProvider {
+  getExtension(
+    reference: Parameters<ExtensionProvider['getExtension']>[0],
+    options?: MarketplaceExtensionRequestOptions,
+  ): Promise<ExtensionRecord>;
+  hasPendingManifests?(
+    reference: Parameters<ExtensionProvider['getExtension']>[0],
+    options?: Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'>,
+  ): boolean;
 }
 
 function preferredWebAssetUrl(
@@ -92,12 +105,18 @@ export function compatibleWebVersions(
 }
 
 export async function resolveWebQuery(
-  provider: ExtensionProvider,
+  provider: IncrementalExtensionProvider,
   query: WebResolutionQuery,
+  options: MarketplaceExtensionRequestOptions = {},
 ): Promise<WebResolution> {
   validateWebQuery(query);
   const reference = parseMarketplaceExtensionReference(query.extension);
-  const record = await provider.getExtension(reference);
+  const manifestOptions = {
+    channel: query.channel,
+    platform: query.platform,
+    ...options,
+  } satisfies MarketplaceExtensionRequestOptions;
+  const record = await provider.getExtension(reference, manifestOptions);
   const compatibleVersions = compatibleWebVersions(record, query);
   const selected = compatibleVersions[0];
 
@@ -106,5 +125,11 @@ export async function resolveWebQuery(
     throw new Error('Resolver returned no result and no domain error.');
   }
 
-  return { record, selected, compatibleVersions };
+  return {
+    record,
+    selected,
+    compatibleVersions,
+    hasPendingManifests:
+      provider.hasPendingManifests?.(reference, manifestOptions) ?? false,
+  };
 }
