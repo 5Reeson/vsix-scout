@@ -1,8 +1,10 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
@@ -30,6 +32,9 @@ const provider = new MarketplaceProvider({
 const DEFAULT_VSCODE = '1.95.0';
 const DEFAULT_PLATFORM: RequestedTargetPlatform = 'win32-x64';
 const INITIAL_VISIBLE_VERSIONS = 8;
+// After resolving, park the result title this far down the viewport so the
+// query form above and the result below stay visible at the same time.
+const RESULT_SCROLL_FRACTION = 0.35;
 
 const ASCII_TEXTURE = String.raw`
 0  1   1 0 1   1   101 1 0            0 1 1 1 1 -----◇
@@ -159,6 +164,16 @@ async function copyText(value: string): Promise<void> {
   await navigator.clipboard.writeText(value);
 }
 
+function scrollToResult(): void {
+  const title = document.getElementById('result-title');
+  if (title === null) return;
+  const titleTop = title.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo({
+    top: Math.max(0, titleTop - window.innerHeight * RESULT_SCROLL_FRACTION),
+    behavior: 'smooth',
+  });
+}
+
 export function App() {
   const [form, setForm] = useState<FormState>(initialFormState);
   const [query, setQuery] = useState<QueryState>({ status: 'idle' });
@@ -167,7 +182,6 @@ export function App() {
   );
   const [copyStatus, setCopyStatus] = useState('');
   const initialQueryStarted = useRef(false);
-  const feedbackRef = useRef<HTMLElement>(null);
 
   async function runQuery(nextForm: FormState): Promise<void> {
     setQuery({ status: 'loading' });
@@ -213,9 +227,13 @@ export function App() {
     }
   }, []);
 
-  useEffect(() => {
-    if (query.status === 'success' || query.status === 'error') {
-      feedbackRef.current?.focus();
+  // Scroll as soon as the loading state is committed, so the viewport moves on
+  // the very first query too. Scroll after render rather than synchronously in
+  // runQuery: at click time React has not committed the loading UI yet, and a
+  // layout change mid-scroll can cancel the first smooth scroll.
+  useLayoutEffect(() => {
+    if (query.status === 'loading') {
+      scrollToResult();
     }
   }, [query]);
 
@@ -270,13 +288,10 @@ export function App() {
             <h2 id="result-title">推荐结果</h2>
             {query.status === 'idle' && <IdleState />}
             {query.status === 'loading' && <LoadingState />}
-            {query.status === 'error' && (
-              <ErrorState error={query.error} feedbackRef={feedbackRef} />
-            )}
+            {query.status === 'error' && <ErrorState error={query.error} />}
             {query.status === 'success' && (
               <RecommendedResult
                 data={query.data}
-                feedbackRef={feedbackRef}
                 visibleVersions={visibleVersions}
                 onShowMore={() =>
                   setVisibleVersions(
@@ -443,24 +458,11 @@ function ResolveForm({
 
       <div className="field">
         <label htmlFor="platform">目标平台</label>
-        <select
-          id="platform"
-          name="platform"
+        <PlatformSelect
           value={form.platform}
-          onChange={(event) =>
-            onChange({
-              ...form,
-              platform: event.target.value as RequestedTargetPlatform,
-            })
-          }
           disabled={isLoading}
-        >
-          {REQUESTED_TARGET_PLATFORMS.map((platform) => (
-            <option key={platform} value={platform}>
-              {platform}
-            </option>
-          ))}
-        </select>
+          onChange={(platform) => onChange({ ...form, platform })}
+        />
       </div>
 
       <fieldset className="channel-field" disabled={isLoading}>
@@ -497,6 +499,174 @@ function ResolveForm({
   );
 }
 
+function PlatformSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  readonly value: RequestedTargetPlatform;
+  readonly disabled: boolean;
+  readonly onChange: (platform: RequestedTargetPlatform) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const optionRefs = useRef<Record<number, HTMLLIElement | null>>({});
+  const selectedIndex = REQUESTED_TARGET_PLATFORMS.indexOf(value);
+  const [activeIndex, setActiveIndex] = useState(
+    selectedIndex === -1 ? 0 : selectedIndex,
+  );
+
+  const listboxId = 'platform-listbox';
+
+  function close(): void {
+    setOpen(false);
+  }
+
+  function openList(): void {
+    if (disabled) return;
+    setActiveIndex(selectedIndex === -1 ? 0 : selectedIndex);
+    setOpen(true);
+  }
+
+  function selectOption(index: number): void {
+    const platform = REQUESTED_TARGET_PLATFORMS[index];
+    if (platform !== undefined) {
+      onChange(platform);
+    }
+    close();
+  }
+
+  function moveActive(delta: number): void {
+    const count = REQUESTED_TARGET_PLATFORMS.length;
+    setActiveIndex((current) => (current + delta + count) % count);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent): void {
+      if (rootRef.current?.contains(event.target as Node) === false) {
+        close();
+      }
+    }
+    function onDocumentKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') close();
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onDocumentKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [open, activeIndex]);
+
+  function handleTriggerKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ): void {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        if (open) moveActive(1);
+        else openList();
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        if (open) moveActive(-1);
+        else openList();
+        break;
+      case 'Home':
+        event.preventDefault();
+        setActiveIndex(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        setActiveIndex(REQUESTED_TARGET_PLATFORMS.length - 1);
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        if (open) selectOption(activeIndex);
+        else openList();
+        break;
+      case 'Escape':
+        event.preventDefault();
+        close();
+        break;
+      default:
+        break;
+    }
+  }
+
+  return (
+    <div className="platform-select" ref={rootRef}>
+      <button
+        id="platform"
+        name="platform"
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          open ? `platform-option-${activeIndex}` : undefined
+        }
+        className="platform-trigger"
+        onClick={() => (open ? close() : openList())}
+        onKeyDown={handleTriggerKeyDown}
+        disabled={disabled}
+      >
+        <span className="platform-trigger-value">{value}</span>
+        <span className="platform-trigger-chevron" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {open && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          aria-label="目标平台"
+          className="platform-menu"
+        >
+          {REQUESTED_TARGET_PLATFORMS.map((platform, index) => (
+            <li
+              key={platform}
+              id={`platform-option-${index}`}
+              role="option"
+              aria-selected={platform === value}
+              className={[
+                'platform-option',
+                index === activeIndex ? 'is-active' : '',
+                platform === value ? 'is-selected' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
+              onPointerMove={() => setActiveIndex(index)}
+              onPointerDown={() => {
+                setActiveIndex(index);
+                selectOption(index);
+              }}
+            >
+              <span>{platform}</span>
+              {platform === value && (
+                <span className="platform-check" aria-hidden="true">
+                  ✓
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function IdleState() {
   return (
     <div className="state-block idle-state">
@@ -518,20 +688,9 @@ function LoadingState() {
   );
 }
 
-function ErrorState({
-  error,
-  feedbackRef,
-}: {
-  readonly error: WebErrorMessage;
-  readonly feedbackRef: React.RefObject<HTMLElement | null>;
-}) {
+function ErrorState({ error }: { readonly error: WebErrorMessage }) {
   return (
-    <article
-      id="query-feedback"
-      className="state-block error-state"
-      ref={feedbackRef}
-      tabIndex={-1}
-    >
+    <article id="query-feedback" className="state-block error-state">
       <p className="state-kicker">Query failed</p>
       <h3>{error.title}</h3>
       <p>{error.detail}</p>
@@ -542,13 +701,11 @@ function ErrorState({
 
 function RecommendedResult({
   data,
-  feedbackRef,
   visibleVersions,
   onShowMore,
   onCopy,
 }: {
   readonly data: WebResolution;
-  readonly feedbackRef: React.RefObject<HTMLElement | null>;
   readonly visibleVersions: number;
   readonly onShowMore: () => void;
   readonly onCopy: (value: string, label: string) => Promise<void>;
@@ -560,7 +717,7 @@ function RecommendedResult({
   const isUniversal = resolution.compatibility.platformMatch === 'universal';
 
   return (
-    <article className="result-content" ref={feedbackRef} tabIndex={-1}>
+    <article className="result-content">
       <div className="result-summary">
         <div className="result-version-line">
           <strong>{resolution.selected.version}</strong>
