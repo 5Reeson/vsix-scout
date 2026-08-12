@@ -20,6 +20,12 @@ import {
 
 import { webErrorMessage, type WebErrorMessage } from './error-message.js';
 import {
+  useLanguage,
+  type Interpolation,
+  type Locale,
+  type MessageKey,
+} from './i18n/index.js';
+import {
   resolveWebQuery,
   type WebResolution,
   type WebResolvedVersion,
@@ -128,33 +134,45 @@ function saveShareableQuery(form: FormState): void {
 }
 
 function reasonText(
+  t: (key: MessageKey, params?: Interpolation) => string,
   reason: ResolutionReason,
   item: WebResolvedVersion,
 ): string {
   const { resolution } = item;
   switch (reason.code) {
     case 'channel-match':
-      return `版本属于请求的 ${resolution.target.channel} channel。`;
+      return t('reason.channelMatch', { channel: resolution.target.channel });
     case 'engine-compatible':
-      return `VS Code ${resolution.target.vscode} 满足 engines.vscode ${resolution.compatibility.engine}。`;
+      return t('reason.engineCompatible', {
+        vscode: resolution.target.vscode,
+        engine: resolution.compatibility.engine,
+      });
     case 'engine-from-manifest':
-      return 'Marketplace metadata 缺少 Engine，engines.vscode 来自该版本的官方 manifest。';
+      return t('reason.engineFromManifest');
     case 'exact-platform-match':
-      return `包的平台与 ${resolution.target.platform} 精确匹配。`;
+      return t('reason.exactPlatform', {
+        platform: resolution.target.platform,
+      });
     case 'universal-platform-fallback':
-      return `该版本没有更优的 ${resolution.target.platform} 变体，使用 universal 包。`;
+      return t('reason.universalFallback', {
+        platform: resolution.target.platform,
+      });
     case 'exact-version-selected':
-      return `版本与指定的 ${resolution.target.version ?? resolution.selected.version} 完全一致。`;
+      return t('reason.exactVersion', {
+        version: resolution.target.version ?? resolution.selected.version,
+      });
     case 'latest-compatible-selected':
-      return '这是完成 channel、平台和 engine 过滤后的最高兼容版本。';
+      return t('reason.latestCompatible');
   }
 }
 
-function formatPublishedAt(value: string): string {
+function formatPublishedAt(value: string, locale: Locale): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? value
-    : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(date);
+    : new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
+        dateStyle: 'medium',
+      }).format(date);
 }
 
 async function copyText(value: string): Promise<void> {
@@ -175,6 +193,7 @@ function scrollToResult(): void {
 }
 
 export function App() {
+  const { t } = useLanguage();
   const [form, setForm] = useState<FormState>(initialFormState);
   const [query, setQuery] = useState<QueryState>({ status: 'idle' });
   const [visibleVersions, setVisibleVersions] = useState(
@@ -216,8 +235,8 @@ export function App() {
         setQuery({
           status: 'error',
           error: {
-            title: '输入无效',
-            detail: '分享链接包含不支持的平台或 channel。请重新选择后查询。',
+            titleKey: 'error.shareInvalid.title',
+            detailKey: 'error.shareInvalid.detail',
             retryable: false,
           },
         });
@@ -245,9 +264,9 @@ export function App() {
   async function handleCopy(value: string, label: string): Promise<void> {
     try {
       await copyText(value);
-      setCopyStatus(`${label}已复制。`);
+      setCopyStatus(t('copy.copied', { label }));
     } catch {
-      setCopyStatus(`${label}复制失败，请手动选择文本。`);
+      setCopyStatus(t('copy.failed', { label }));
     }
   }
 
@@ -264,8 +283,8 @@ export function App() {
         <section className="workflow-section" aria-labelledby="query-title">
           <div className="workflow-content">
             <header className="section-heading">
-              <h2 id="query-title">兼容性查询</h2>
-              <p>输入扩展信息和目标环境，找到最新兼容版本。</p>
+              <h2 id="query-title">{t('section.queryTitle')}</h2>
+              <p>{t('section.queryDescription')}</p>
             </header>
             <ResolveForm
               form={form}
@@ -285,7 +304,7 @@ export function App() {
           aria-live="polite"
         >
           <div className="workflow-content">
-            <h2 id="result-title">推荐结果</h2>
+            <h2 id="result-title">{t('section.resultTitle')}</h2>
             {query.status === 'idle' && <IdleState />}
             {query.status === 'loading' && <LoadingState />}
             {query.status === 'error' && <ErrorState error={query.error} />}
@@ -313,17 +332,33 @@ export function App() {
 }
 
 function SiteHeader() {
+  const { t, locale, setLocale } = useLanguage();
+  const nextLocale: Locale = locale === 'zh' ? 'en' : 'zh';
   return (
     <header className="site-header">
       <div className="header-inner">
         <a className="brand" href={import.meta.env.BASE_URL}>
-          VSIX Scout
+          {t('brand')}
         </a>
-        <nav aria-label="网站导航">
-          <button className="nav-placeholder" type="button" disabled>
-            中 / EN
+        <nav aria-label={t('nav.langToggle')}>
+          <button
+            className="nav-lang-toggle"
+            type="button"
+            aria-label={t('nav.langSwitchTo')}
+            title={t('nav.langSwitchTo')}
+            onClick={() => setLocale(nextLocale)}
+          >
+            <span className={locale === 'zh' ? 'is-active' : undefined}>
+              中
+            </span>
+            <span className="nav-lang-sep" aria-hidden="true">
+              /
+            </span>
+            <span className={locale === 'en' ? 'is-active' : undefined}>
+              EN
+            </span>
           </button>
-          <a href="#about">About</a>
+          <a href="#about">{t('nav.about')}</a>
           <a
             href="https://github.com/5Reeson/vsix-scout"
             target="_blank"
@@ -338,6 +373,7 @@ function SiteHeader() {
 }
 
 function HeroAsciiReveal() {
+  const { t } = useLanguage();
   const heroRef = useRef<HTMLElement>(null);
   const texturePanels = ['left', 'center', 'right'] as const;
 
@@ -378,10 +414,8 @@ function HeroAsciiReveal() {
       </div>
       <div className="hero-copy">
         <h1 id="page-title">VSIX Scout</h1>
-        <p className="hero-lead">帮你找到适合当前 VS Code 的官方 VSIX 包</p>
-        <p className="hero-support">
-          直接查询 Marketplace，在浏览器内完成兼容性解析。
-        </p>
+        <p className="hero-lead">{t('hero.lead')}</p>
+        <p className="hero-support">{t('hero.support')}</p>
       </div>
     </section>
   );
@@ -413,6 +447,7 @@ function ResolveForm({
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly hasError: boolean;
 }) {
+  const { t } = useLanguage();
   return (
     <form
       className="query-form"
@@ -420,7 +455,7 @@ function ResolveForm({
       aria-describedby={hasError ? 'query-feedback' : 'query-note'}
     >
       <div className="field">
-        <label htmlFor="extension">Extension ID 或 Marketplace URL</label>
+        <label htmlFor="extension">{t('form.extensionLabel')}</label>
         <input
           id="extension"
           name="extension"
@@ -428,7 +463,7 @@ function ResolveForm({
           required
           autoComplete="off"
           spellCheck="false"
-          placeholder="ms-python.python"
+          placeholder={t('form.extensionPlaceholder')}
           value={form.extension}
           onChange={(event) =>
             onChange({ ...form, extension: event.target.value })
@@ -438,7 +473,7 @@ function ResolveForm({
       </div>
 
       <div className="field">
-        <label htmlFor="vscode">VS Code 完整版本号</label>
+        <label htmlFor="vscode">{t('form.vscodeLabel')}</label>
         <input
           id="vscode"
           name="vscode"
@@ -447,7 +482,7 @@ function ResolveForm({
           autoComplete="off"
           spellCheck="false"
           inputMode="decimal"
-          placeholder="1.95.0"
+          placeholder={t('form.vscodePlaceholder')}
           value={form.vscode}
           onChange={(event) =>
             onChange({ ...form, vscode: event.target.value })
@@ -457,7 +492,7 @@ function ResolveForm({
       </div>
 
       <div className="field">
-        <label htmlFor="platform">目标平台</label>
+        <label htmlFor="platform">{t('form.platformLabel')}</label>
         <PlatformSelect
           value={form.platform}
           disabled={isLoading}
@@ -466,7 +501,7 @@ function ResolveForm({
       </div>
 
       <fieldset className="channel-field" disabled={isLoading}>
-        <legend>Channel</legend>
+        <legend>{t('form.channelLegend')}</legend>
         <div className="channel-tabs">
           {(['stable', 'pre-release'] as const).map((channel) => (
             <label key={channel}>
@@ -485,15 +520,13 @@ function ResolveForm({
 
       <button className="command-button" type="submit" disabled={isLoading}>
         <span aria-hidden="true">&gt;</span>
-        <span>
-          {isLoading ? 'Resolving compatibility' : 'Resolve compatibility'}
-        </span>
+        <span>{isLoading ? t('form.resolving') : t('form.resolve')}</span>
         <span className="command-arrow" aria-hidden="true">
           →
         </span>
       </button>
       <p className="query-note" id="query-note">
-        只查询，不下载。最近使用的 VS Code 版本和平台仅保存在本机。
+        {t('form.note')}
       </p>
     </form>
   );
@@ -508,6 +541,7 @@ function PlatformSelect({
   readonly disabled: boolean;
   readonly onChange: (platform: RequestedTargetPlatform) => void;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<Record<number, HTMLLIElement | null>>({});
@@ -628,7 +662,7 @@ function PlatformSelect({
         <ul
           id={listboxId}
           role="listbox"
-          aria-label="目标平台"
+          aria-label={t('form.platformLabel')}
           className="platform-menu"
         >
           {REQUESTED_TARGET_PLATFORMS.map((platform, index) => (
@@ -668,17 +702,19 @@ function PlatformSelect({
 }
 
 function IdleState() {
+  const { t } = useLanguage();
   return (
     <div className="state-block idle-state">
-      <p className="state-kicker">等待查询</p>
-      <p>提交上方信息后，这里会显示推荐版本、选择原因和官方下载链接。</p>
+      <p className="state-kicker">{t('idle.kicker')}</p>
+      <p>{t('idle.body')}</p>
     </div>
   );
 }
 
 function LoadingState() {
+  const { t } = useLanguage();
   return (
-    <div className="loading-state" aria-label="正在查询 Marketplace">
+    <div className="loading-state" aria-label={t('loading.aria')}>
       <div className="skeleton skeleton-version" />
       <div className="skeleton skeleton-meta" />
       <div className="skeleton skeleton-line" />
@@ -689,12 +725,13 @@ function LoadingState() {
 }
 
 function ErrorState({ error }: { readonly error: WebErrorMessage }) {
+  const { t } = useLanguage();
   return (
     <article id="query-feedback" className="state-block error-state">
-      <p className="state-kicker">Query failed</p>
-      <h3>{error.title}</h3>
-      <p>{error.detail}</p>
-      {error.retryable && <p className="retry-note">请稍后再次 Resolve。</p>}
+      <p className="state-kicker">{t('error.kicker')}</p>
+      <h3>{t(error.titleKey)}</h3>
+      <p>{t(error.detailKey)}</p>
+      {error.retryable && <p className="retry-note">{t('error.retryNote')}</p>}
     </article>
   );
 }
@@ -710,6 +747,7 @@ function RecommendedResult({
   readonly onShowMore: () => void;
   readonly onCopy: (value: string, label: string) => Promise<void>;
 }) {
+  const { t, locale } = useLanguage();
   const item = data.selected;
   const { resolution } = item;
   const otherVersions = data.compatibleVersions.slice(1);
@@ -721,9 +759,11 @@ function RecommendedResult({
       <div className="result-summary">
         <div className="result-version-line">
           <strong>{resolution.selected.version}</strong>
-          <span className="tag">Recommended</span>
+          <span className="tag">{t('result.tagRecommended')}</span>
           <span className="tag tag-success">{resolution.selected.channel}</span>
-          {isUniversal && <span className="tag">universal fallback</span>}
+          {isUniversal && (
+            <span className="tag">{t('result.tagUniversalFallback')}</span>
+          )}
         </div>
         <p className="result-identity">
           <span>
@@ -732,9 +772,11 @@ function RecommendedResult({
           <code>{resolution.extension.id}</code>
         </p>
         <p className="result-byline">
-          发布于 {formatPublishedAt(resolution.selected.publishedAt)}
+          {t('result.publishedOn', {
+            date: formatPublishedAt(resolution.selected.publishedAt, locale),
+          })}
           <span aria-hidden="true">·</span>
-          Microsoft Marketplace
+          {t('result.marketplace')}
         </p>
       </div>
 
@@ -742,28 +784,28 @@ function RecommendedResult({
         <div className="result-details">
           <dl className="result-facts">
             <div>
-              <dt>engines.vscode</dt>
+              <dt>{t('result.factsEngine')}</dt>
               <dd>{resolution.compatibility.engine}</dd>
             </div>
             <div>
-              <dt>Channel</dt>
+              <dt>{t('result.factsChannel')}</dt>
               <dd>{resolution.selected.channel}</dd>
             </div>
             <div>
-              <dt>实际平台</dt>
+              <dt>{t('result.factsActualPlatform')}</dt>
               <dd>{resolution.selected.targetPlatform}</dd>
             </div>
             <div>
-              <dt>Universal fallback</dt>
-              <dd>{isUniversal ? 'Yes' : 'No'}</dd>
+              <dt>{t('result.factsUniversal')}</dt>
+              <dd>{isUniversal ? t('result.yes') : t('result.no')}</dd>
             </div>
           </dl>
 
           <div className="explanation">
-            <h3>选择原因</h3>
+            <h3>{t('result.why')}</h3>
             <ul>
               {resolution.compatibility.reasons.map((reason) => (
-                <li key={reason.code}>{reasonText(reason, item)}</li>
+                <li key={reason.code}>{reasonText(t, reason, item)}</li>
               ))}
             </ul>
           </div>
@@ -771,9 +813,7 @@ function RecommendedResult({
 
         <div className="result-actions">
           {item.downloadUrl === undefined ? (
-            <p className="download-unavailable">
-              Marketplace metadata 没有提供可用的 VSIXPackage URL。
-            </p>
+            <p className="download-unavailable">{t('result.noDownloadUrl')}</p>
           ) : (
             <>
               <a
@@ -783,15 +823,17 @@ function RecommendedResult({
                 rel="noopener noreferrer external"
               >
                 <span aria-hidden="true">&gt;</span>
-                Download official VSIX
+                {t('result.download')}
                 <span aria-hidden="true">↗</span>
               </a>
               <button
                 className="text-action"
                 type="button"
-                onClick={() => void onCopy(item.downloadUrl ?? '', '下载 URL')}
+                onClick={() =>
+                  void onCopy(item.downloadUrl ?? '', t('result.copyLinkLabel'))
+                }
               >
-                复制下载链接
+                {t('result.copyLink')}
               </button>
             </>
           )}
@@ -805,8 +847,8 @@ function RecommendedResult({
       {resolution.selected.upstreamSha256 !== undefined && (
         <div className="hash-block">
           <div>
-            <span>Marketplace reported SHA-256</span>
-            <p>Marketplace metadata 报告值，浏览器未验证下载文件。</p>
+            <span>{t('result.hashLabel')}</span>
+            <p>{t('result.hashNote')}</p>
           </div>
           <button
             className="text-action"
@@ -814,11 +856,11 @@ function RecommendedResult({
             onClick={() =>
               void onCopy(
                 resolution.selected.upstreamSha256 ?? '',
-                'Marketplace reported SHA-256',
+                t('result.hashLabel'),
               )
             }
           >
-            复制 SHA-256
+            {t('result.copySha')}
           </button>
           <code>{resolution.selected.upstreamSha256}</code>
         </div>
@@ -845,11 +887,12 @@ function OtherCompatibleVersions({
   readonly hasMore: boolean;
   readonly onShowMore: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <details className="other-versions">
-      <summary>查看其他兼容版本 ({total})</summary>
+      <summary>{t('versions.summary', { count: total })}</summary>
       {total === 0 ? (
-        <p>没有其他版本同时满足当前条件。</p>
+        <p>{t('versions.none')}</p>
       ) : (
         <>
           <ol className="version-list">
@@ -862,7 +905,7 @@ function OtherCompatibleVersions({
           </ol>
           {hasMore && (
             <button className="show-more" type="button" onClick={onShowMore}>
-              显示更多
+              {t('versions.showMore')}
             </button>
           )}
         </>
@@ -872,6 +915,7 @@ function OtherCompatibleVersions({
 }
 
 function VersionRow({ item }: { readonly item: WebResolvedVersion }) {
+  const { t, locale } = useLanguage();
   const { resolution } = item;
   return (
     <li>
@@ -881,7 +925,9 @@ function VersionRow({ item }: { readonly item: WebResolvedVersion }) {
       </div>
       <div>
         <span>{resolution.selected.targetPlatform}</span>
-        <span>{formatPublishedAt(resolution.selected.publishedAt)}</span>
+        <span>
+          {formatPublishedAt(resolution.selected.publishedAt, locale)}
+        </span>
       </div>
       {item.downloadUrl !== undefined && (
         <a
@@ -889,7 +935,7 @@ function VersionRow({ item }: { readonly item: WebResolvedVersion }) {
           target="_blank"
           rel="noopener noreferrer external"
         >
-          官方 VSIX ↗
+          {t('versions.officialVsix')}
         </a>
       )}
     </li>
@@ -897,14 +943,12 @@ function VersionRow({ item }: { readonly item: WebResolvedVersion }) {
 }
 
 function SiteFooter() {
+  const { t } = useLanguage();
   return (
     <footer id="about">
       <div className="footer-inner">
-        <p>
-          VSIX Scout 根据 Marketplace 的 engines.vscode、channel
-          和平台信息选择兼容版本。
-        </p>
-        <p>不代理、不缓存、不执行 VSIX。下载直接来自 Microsoft。</p>
+        <p>{t('footer.line1')}</p>
+        <p>{t('footer.line2')}</p>
       </div>
     </footer>
   );
