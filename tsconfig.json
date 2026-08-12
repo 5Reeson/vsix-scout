@@ -4,6 +4,7 @@
     { "path": "packages/shared" },
     { "path": "packages/core" },
     { "path": "packages/marketplace" },
-    { "path": "apps/cli" }
+    { "path": "apps/cli" },
+    { "path": "apps/web" }
   ]
 }

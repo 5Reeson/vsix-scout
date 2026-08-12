@@ -40,6 +40,7 @@
   "scripts": {
     "build": "tsc -b",
     "build:release": "pnpm build && node scripts/build-release.mjs",
+    "build:web": "pnpm --filter @vsix-scout/web build",
     "cli": "node apps/cli/dist/bin.js",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty false",
@@ -48,6 +49,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:live:marketplace": "node scripts/test-live-marketplace.mjs",
+    "web": "pnpm --filter @vsix-scout/web dev",
+    "web:preview": "pnpm --filter @vsix-scout/web preview",
     "test:watch": "vitest",
     "probe:marketplace": "node scripts/probe-marketplace.mjs",
     "package:check": "node scripts/verify-package.mjs",

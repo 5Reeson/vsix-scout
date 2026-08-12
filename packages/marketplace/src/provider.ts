@@ -21,6 +21,10 @@ import {
 } from './normalize.js';
 import { MarketplaceManifestSchema } from './raw-schema.js';
 import { parseMarketplaceExtensionReference } from './reference.js';
+import {
+  nodeMarketplaceRequestAdapter,
+  type MarketplaceRequestAdapter,
+} from './request-adapter.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -45,6 +49,7 @@ export interface MarketplaceProviderOptions {
   readonly manifestConcurrency?: number;
   readonly maxRetryDelayMs?: number;
   readonly userAgent?: string;
+  readonly requestAdapter?: MarketplaceRequestAdapter;
   readonly now?: () => number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -213,13 +218,14 @@ export class MarketplaceProvider implements ExtensionProvider {
   readonly #manifestConcurrency: number;
   readonly #maxRetryDelayMs: number;
   readonly #userAgent: string;
+  readonly #requestAdapter: MarketplaceRequestAdapter;
   readonly #now: () => number;
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #cache = new Map<string, CacheEntry>();
   readonly #inFlight = new Map<string, Promise<ExtensionRecord>>();
 
   constructor(options: MarketplaceProviderOptions = {}) {
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = (options.fetch ?? globalThis.fetch).bind(globalThis);
     this.#timeoutMs = requireIntegerOption(
       'timeoutMs',
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -261,6 +267,8 @@ export class MarketplaceProvider implements ExtensionProvider {
       0,
     );
     this.#userAgent = options.userAgent ?? `vsix-scout/${PROJECT_VERSION}`;
+    this.#requestAdapter =
+      options.requestAdapter ?? nodeMarketplaceRequestAdapter;
     this.#now = options.now ?? Date.now;
     this.#sleep =
       options.sleep ??
@@ -341,7 +349,6 @@ export class MarketplaceProvider implements ExtensionProvider {
         headers: {
           Accept: `application/json;api-version=${MARKETPLACE_API_VERSION}`,
           'Content-Type': 'application/json',
-          'User-Agent': this.#userAgent,
         },
         body: JSON.stringify({
           filters: [
@@ -419,7 +426,6 @@ export class MarketplaceProvider implements ExtensionProvider {
           {
             headers: {
               Accept: 'application/json',
-              'User-Agent': this.#userAgent,
             },
           },
           {
@@ -479,16 +485,21 @@ export class MarketplaceProvider implements ExtensionProvider {
     init: RequestInit,
     options: RequestJsonOptions,
   ): Promise<unknown | undefined> {
+    this.#requestAdapter.validateRequest(url);
+
     for (let attempt = 0; attempt <= this.#maxRetries; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
 
       try {
-        const response = await this.#fetch(url, {
-          ...init,
-          redirect: 'manual',
-          signal: controller.signal,
-        });
+        const response = await this.#fetch(
+          url,
+          this.#requestAdapter.prepareRequest(
+            { ...init, signal: controller.signal },
+            this.#userAgent,
+          ),
+        );
+        this.#requestAdapter.validateResponse(response, url);
 
         if (
           options.allowNotFound === true &&

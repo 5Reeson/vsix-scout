@@ -40,6 +40,24 @@ operation. Automatic redirects are disabled in the metadata provider so an
 upstream response cannot silently move a request outside the official host
 policy.
 
+## Node and browser request adapters
+
+The provider keeps request, response-size, retry, schema, manifest fallback,
+normalization, cache, and error behavior shared. A small request adapter handles
+the runtime differences without duplicating provider or resolver rules.
+
+- The Node adapter adds the VSIX Scout `User-Agent` and retains
+  `redirect: "manual"`.
+- The browser adapter omits `User-Agent`, uses `redirect: "follow"`, and checks
+  the requested and final response URLs against the same Marketplace allowlist.
+- The provider binds the selected fetch implementation to `globalThis` because
+  Chromium native fetch rejects an object-method receiver with
+  `Illegal invocation`.
+
+The browser adapter does not weaken metadata or manifest response limits and is
+not used for VSIX downloads. Web download links remain ordinary navigation to a
+validated Microsoft URL.
+
 ## Manifest fallback
 
 The historical metadata response is normalized first. Only candidates whose

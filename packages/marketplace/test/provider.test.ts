@@ -7,6 +7,7 @@ import {
   HISTORY_QUERY_FLAGS,
   MARKETPLACE_QUERY_URL,
   MarketplaceProvider,
+  browserMarketplaceRequestAdapter,
   parseMarketplaceExtensionReference,
 } from '../src/index.js';
 
@@ -44,6 +45,9 @@ describe('MarketplaceProvider', () => {
     expect(new Headers(init?.headers).get('accept')).toBe(
       'application/json;api-version=3.0-preview.1',
     );
+    expect(new Headers(init?.headers).get('user-agent')).toMatch(
+      /^vsix-scout\//,
+    );
     expect(JSON.parse(String(init?.body))).toMatchObject({
       filters: [
         {
@@ -54,6 +58,46 @@ describe('MarketplaceProvider', () => {
       ],
       flags: HISTORY_QUERY_FLAGS,
     });
+  });
+
+  it('uses browser-safe headers and redirect behavior through the browser adapter', async () => {
+    const fixture = await readFixture('marketplace/universal-prettier.json');
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(fixture));
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock,
+      requestAdapter: browserMarketplaceRequestAdapter,
+    });
+
+    await provider.getExtension(
+      parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+    );
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.redirect).toBe('follow');
+    expect(new Headers(init?.headers).has('user-agent')).toBe(false);
+  });
+
+  it('binds fetch to globalThis for browser native fetch compatibility', async () => {
+    const fixture = await readFixture('marketplace/universal-prettier.json');
+    const fetchMock = vi.fn(function (this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError('Illegal invocation');
+      }
+      return Promise.resolve(jsonResponse(fixture));
+    });
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock as typeof fetch,
+      requestAdapter: browserMarketplaceRequestAdapter,
+    });
+
+    const record = await provider.getExtension(
+      parseMarketplaceExtensionReference('esbenp.prettier-vscode'),
+    );
+
+    expect(record.extension.id).toBe('esbenp.prettier-vscode');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('fetches a missing engine manifest and falls back after a stale CDN URL', async () => {
