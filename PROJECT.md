@@ -1,12 +1,12 @@
 # VSIX Scout 项目定义与开发记录
 
-> **项目状态：** Phase 4 工程实现已完成，0.1.0 正式发布待确认
+> **项目状态：** `v0.1.0` 已正式发布；Phase 5 纯静态 Web UI MVP 已完成本地验收，待 GitHub Pages 生产部署
 >
 > **仓库：** `vsix-scout`
 >
 > **CLI 命令：** `vsix-scout`
 >
-> **最后更新：** 2026-08-10
+> **最后更新：** 2026-08-12
 >
 > **文档性质：** 本文件是项目定义、范围、阶段计划与关键决策的唯一初始基线；实施过程中持续更新。
 
@@ -25,6 +25,8 @@ VSIX Scout 是一个面向离线、内网和受控开发环境的开源工具。
 ## 2. 背景与问题
 
 公司内网通常固定使用较旧版本的 VS Code，并且不能直接访问 Extension Marketplace。扩展需要在外网环境下载，通过企业审批或文件传输流程进入内网，再手动安装。
+
+当前最直接的实际流程是：每位开发者在可访问公网的 OA 电脑上查找自己需要的扩展，手工判断与内网 VS Code 版本和平台兼容的扩展版本，下载 VSIX 后再通过 SFTP 传入开发环境安装。公司的基础设施和扩展需求较分散，现阶段不适合先以统一 lockfile、集中审批或批量资产管理作为主要产品入口；一个无需安装 CLI、可从 OA 电脑或手机访问的查询页面更能立即降低使用门槛。
 
 现有流程存在以下困难：
 
@@ -50,9 +52,10 @@ VSIX Scout 将这一过程压缩为一次明确、可复现、可验证的解析
 ### 3.2 核心用户故事
 
 1. 作为开发者，我可以输入扩展 ID、VS Code 版本和平台，获得最新兼容版本及选择原因。
-2. 作为工具链维护者，我可以查看历史版本的兼容性，或固定选择某个确切版本。
-3. 作为安全审批人员，我可以获得官方来源 URL、SHA-256 和结构化 JSON，而不必执行扩展。
-4. 作为环境管理员，我可以为一组扩展生成可复现的 lockfile，供审批和离线导入使用。
+2. 作为没有安装 CLI 的用户，我可以在公网浏览器中完成同样的兼容版本查询，并从微软官方地址下载 VSIX。
+3. 作为工具链维护者，我可以查看历史版本的兼容性，或固定选择某个确切版本。
+4. 作为安全审批人员，我可以获得官方来源 URL、SHA-256 和结构化 JSON，而不必执行扩展。
+5. 作为环境管理员，我可以为一组扩展生成可复现的 lockfile，供审批和离线导入使用。
 
 ## 4. 产品原则
 
@@ -95,12 +98,12 @@ VSIX Scout 将这一过程压缩为一次明确、可复现、可验证的解析
 
 ### 5.3 MVP 之后
 
-- 多扩展 lockfile 与离线审批报告。
-- Open VSX、GitHub Releases 或企业内部 catalog provider。
+- 部署于 GitHub Pages 的纯静态 Web 查询界面。
+- 多扩展 lockfile、批量安全下载与离线审批报告。
+- Open VSX 或企业内部 catalog provider。
 - Marketplace signature manifest 获取和签名验证。
 - 扩展依赖图、extension pack 批量解析及冲突说明。
 - SBOM 或静态安全检查。
-- 轻量 Web 查询界面。
 
 ## 6. CLI 产品面
 
@@ -201,7 +204,7 @@ interface ResolutionResult {
 vsix-scout/
 ├── apps/
 │   ├── cli/
-│   └── web/                 # 后续阶段
+│   └── web/                 # Phase 5 纯静态 Web UI
 ├── packages/
 │   ├── core/
 │   ├── marketplace/
@@ -245,8 +248,10 @@ vsix-scout/
 
 **`apps/web`**
 
-- 在核心稳定后提供轻量搜索表单和结果页。
-- 服务端调用 resolver；不代理或长期缓存 VSIX 文件。
+- 提供轻量查询表单、兼容版本结果和官方 VSIX 下载链接。
+- 浏览器直接请求 Visual Studio Marketplace，并在客户端复用现有 provider normalization 与 core resolver。
+- 作为纯静态站点部署到 GitHub Pages；不引入 Worker、Serverless API、SSR、数据库或下载代理。
+- 不读取、缓存、托管或重新分发 VSIX；用户点击后直接访问经过 allowlist 校验的微软官方资源。
 
 ### 8.2 建议依赖
 
@@ -254,7 +259,7 @@ vsix-scout/
 - `zod`：上游响应与 CLI/JSON schema 的运行时验证。
 - `commander` 或 `citty`：CLI 命令层，在脚手架阶段用小型原型决定。
 - `vitest`：单元测试、fixture 测试和集成测试。
-- Web 框架延后选择，避免早期架构被 UI 需求主导。
+- Phase 5 Web 默认采用 React、Vite 和 TypeScript；最终依赖选择以保持轻量、可访问和 GitHub Pages 子路径兼容为准。
 
 ## 9. 安全、隐私与合规边界
 
@@ -354,7 +359,7 @@ MVP 可发布需要同时满足：
 
 ### Phase 4 — 硬化与首个开源版本
 
-**状态：** 工程实现已于 2026-08-10 完成；正式 tag、npm 发布与 GitHub Release 待维护者确认。
+**状态：** 已于 2026-08-11 完成，`v0.1.0`、npm 包和 GitHub Release 均已正式发布。
 
 **目标：** 将“能用”提升为可维护、可公开发布。
 
@@ -368,43 +373,98 @@ MVP 可发布需要同时满足：
 
 **退出条件：** 可从干净环境安装，发布物可验证，已知限制公开且关键故障均有回归测试。
 
-### Phase 5 — Lockfile 与企业工作流
+### Phase 5 — 纯静态 Web UI MVP
 
-**目标：** 支持多扩展审批和可复现离线环境。
+**状态：** 工程实现与本地验收已于 2026-08-12 完成；待维护者启用 GitHub Pages Actions source 并确认生产部署。目标版本为 `v0.2.0`。
+
+**目标：** 将 CLI 已验证的单扩展兼容性解析能力提供给无需安装本地工具的用户，直接改善 OA 电脑查询、官方下载、SFTP 转移和内网安装流程。
+
+**确定的用户流程：**
+
+1. 用户输入规范的 `publisher.extension` ID 或 Marketplace URL。
+2. 用户输入目标 VS Code 完整版本，选择平台和 stable/pre-release channel。
+3. 浏览器直接调用 Visual Studio Marketplace `extensionquery`，按需直接读取官方 manifest。
+4. Web 复用现有 normalization、SemVer、channel、platform、universal fallback、排序和选择解释逻辑。
+5. 页面展示最新兼容版本、engine、平台匹配、选择原因和其他兼容版本。
+6. 页面提供 Marketplace metadata 返回并经过 allowlist 校验的官方 VSIX URL；用户点击后直接访问微软网站/CDN 下载。
+
+**已确认的架构边界：**
+
+- 仅构建纯静态前端并部署到 GitHub Pages，首个地址按项目站点 `/vsix-scout/` 子路径设计。
+- 浏览器直接请求 Marketplace；不引入 Cloudflare Workers、Pages Functions、Serverless API、自建后端、SSR 或数据库。
+- 不为当前可接受的 CORS、schema 漂移、上游大响应、重试、缓存和限流风险预先增加代理层。
+- 2026-08-12 已实测 Marketplace query 的 CORS preflight 和 POST 可用，manifest 与 VSIX CDN 均允许跨域访问；若实现时事实变化，应停止并汇报，而不是自行扩展架构。
+- 不实现关键词搜索；第一版只接受精确 Extension ID 或已知 Marketplace URL。
+- 不通过固定模板凭空构造下载目标；优先使用 Marketplace 返回的 `Microsoft.VisualStudio.Services.VSIXPackage` URL，现有受测 fallback 仅在既定 provider 策略中使用。
+- 不使用 `fetch`、Blob 或 ArrayBuffer 下载 VSIX，不在浏览器中计算整个文件的 SHA-256，不代理、缓存或托管 VSIX。
+- 可以展示 Marketplace 提供的 SHA-256，但必须标记为上游报告值，不能声称 Web 已验证实际下载文件；完整下载校验仍由 CLI 提供。
+- Marketplace 数据是外部 trust boundary：复用 Zod schema、normalization、SemVer 解析和 URL allowlist 即可，不增加第二数据源；扩展名称等内容只按文本渲染，不执行上游 HTML。
+- Web 与 CLI 必须对同一 fixture 产生一致的解析结果，不能复制或分叉 resolver 规则。
+
+**工作：**
+
+- 在 `apps/web` 建立 React、Vite、TypeScript 应用，并保证 GitHub Pages `/vsix-scout/` 子路径正确。
+- 使 Marketplace Provider 的共享逻辑兼容浏览器，隔离 `User-Agent`、redirect 等 Node/浏览器差异，同时保持 CLI 行为不变。
+- 实现输入表单、加载/错误状态、推荐结果、选择解释、兼容版本列表和官方 VSIX 链接。
+- 支持复制下载 URL 和 Marketplace reported SHA-256；使用 URL 查询参数分享查询，可选用 `localStorage` 保存本机默认 VS Code 版本和平台。
+- 提供响应式布局、键盘操作、表单 label、focus、错误关联和基础颜色对比。
+- 增加共享 fixture 一致性测试、Web 单元/组件测试、production build 验证和至少一个真实浏览器端到端 Marketplace 查询。
+- 增加 GitHub Pages Actions workflow；本地实现和验证完成后再由维护者确认生产部署设置。
+
+**明确不做：**
+
+- Worker、后端 API、数据库、账号、服务端历史、VSIX 文件处理、批量下载、lockfile、审批、Open VSX、企业 catalog、插件推荐和目录浏览。
+
+**退出条件：** 用户可在 GitHub Pages 上完成与 CLI `resolve` 等价的单扩展查询，看到可解释结果，并通过允许的微软官方 URL 下载正确平台和版本的 VSIX；现有 CLI、CI 和打包流程保持通过。
+
+**实现与本地验收结果：**
+
+- 已建立 `apps/web` React/Vite/TypeScript 静态应用，production assets 使用 `/vsix-scout/` base。
+- 已提供 Node/browser Marketplace request adapter；共享 provider 继续负责 timeout、重试、流式大小限制、schema、normalization、manifest fallback 和缓存。
+- 已实现全部 MVP 输入、结果、复制、其他兼容版本、URL 参数、本机偏好、加载和分类错误状态；外部内容只按文本渲染。
+- Web 下载仅渲染通过 allowlist 的 metadata URL；真实浏览器请求记录确认页面未 fetch VSIX。
+- fixture parity 覆盖 stable、pre-release、精确平台和 universal fallback；`pnpm check` 共 106 个测试通过。
+- `pnpm release:check`、Web production build、CLI release bundle/package/clean install 均通过。
+- Chromium production preview 已直连真实 Marketplace：`esbenp.prettier-vscode`、VS Code `1.101.0`、`darwin-arm64`、stable 解析为 `12.4.0` universal，并生成允许的 `esbenp.gallerycdn.vsassets.io` 官方 URL。
+- 手机视口无水平溢出，light/dark 均完成视觉检查；Lighthouse 为 Performance 99、Accessibility 100、Best Practices 96、SEO 100。
+
+### Phase 6 — Lockfile 与企业工作流
+
+**目标：** 在出现多人、多机器、CI、合规审查或统一离线环境需求时，支持多扩展审批和可复现交付。
 
 **工作：**
 
 - 实现 `vsix-scout lock`、lockfile schema、批量解析和部分失败报告。
 - 记录每个扩展的版本、engine、平台、来源、SHA-256 和生成上下文。
-- 设计 lockfile 校验、更新 diff 和批量下载命令。
+- 设计 lockfile 校验、更新 diff、批量安全下载和审批记录。
 - 评估签名验证和审批报告格式。
 
 **退出条件：** 同一 lockfile 能够校验并重建一致的扩展文件集合，差异可审计。
 
-### Phase 6 — Web 与 Provider 扩展
+### Phase 7 — Provider 扩展
 
-**目标：** 在稳定核心之上扩展可访问性和数据源。
+**目标：** 在 Marketplace、CLI 和 Web 边界稳定后，按真实需求增加其他数据源。
 
 **工作：**
 
-- 建设轻量 Web 搜索与结果页，复用同一 resolver 和 schema。
-- Web 不托管 VSIX，仅展示结果并链接/重定向到已校验的官方资源。
-- 按真实需求评估 Open VSX、GitHub Releases 和企业 catalog provider。
-- 增加依赖图、extension pack 和签名验证等能力。
+- 评估并实现 Open VSX 和企业 catalog provider。
+- 保持 provider 只负责上游协议与 normalization，所有兼容性判断继续复用 core resolver。
+- 按需求增加依赖图、extension pack、GitHub Releases 或签名验证等能力。
 
-**退出条件：** 新界面和新 provider 不复制兼容逻辑，且不削弱既有安全边界。
+**退出条件：** 新 provider 不复制兼容逻辑，输出统一内部模型，并且不削弱现有来源和 URL 安全边界。
 
 ## 12. 风险与应对
 
-| 风险                             | 影响                           | 应对                                                 |
-| -------------------------------- | ------------------------------ | ---------------------------------------------------- |
-| Marketplace API 非正式或字段变化 | 解析中断或误选                 | provider 隔离、运行时校验、fixtures、schema 漂移错误 |
-| engine metadata 缺失或不准确     | 无法判定或理论兼容但实际不可用 | manifest fallback；明确“声明兼容”的局限              |
-| 平台变体与版本排序复杂           | 下载错误包                     | 以版本变体为候选实体；精确平台优先并充分测试         |
-| URL/redirect 被滥用              | SSRF 或下载非官方内容          | 输入收敛、HTTPS、逐跳 allowlist、大小与超时限制      |
-| 上游限流或网络不稳               | CLI 体验不稳定                 | 有限重试、超时、短期 metadata cache、可诊断错误      |
-| Marketplace/扩展许可证限制       | 发布或使用风险                 | 不镜像、不重分发；公开发布前复核条款并明确定位       |
-| 过早开发 Web                     | 核心逻辑不稳、重复实现         | Phase 1–4 只以 core/provider/CLI 为主                |
+| 风险                             | 影响                           | 应对                                                   |
+| -------------------------------- | ------------------------------ | ------------------------------------------------------ |
+| Marketplace API 非正式或字段变化 | 解析中断或误选                 | provider 隔离、运行时校验、fixtures、schema 漂移错误   |
+| engine metadata 缺失或不准确     | 无法判定或理论兼容但实际不可用 | manifest fallback；明确“声明兼容”的局限                |
+| 平台变体与版本排序复杂           | 下载错误包                     | 以版本变体为候选实体；精确平台优先并充分测试           |
+| URL/redirect 被滥用              | SSRF 或下载非官方内容          | 输入收敛、HTTPS、逐跳 allowlist、大小与超时限制        |
+| 上游限流或网络不稳               | CLI 体验不稳定                 | 有限重试、超时、短期 metadata cache、可诊断错误        |
+| Marketplace/扩展许可证限制       | 发布或使用风险                 | 不镜像、不重分发；公开发布前复核条款并明确定位         |
+| 浏览器直连 Marketplace 发生变化  | Web 查询失效                   | 共享 schema/fixtures；明确错误；事实变化时再评估代理层 |
+| Web 与 CLI 解析逻辑分叉          | 相同输入产生不同版本           | 共享 provider normalization、core resolver 和 fixtures |
 
 ## 13. 待验证问题
 
@@ -423,42 +483,53 @@ MVP 可发布需要同时满足：
 
 关键决策在此追加，避免只存在于聊天或提交信息中。
 
-| 日期       | 决策                                               | 理由                                                     | 状态   |
-| ---------- | -------------------------------------------------- | -------------------------------------------------------- | ------ |
-| 2026-08-10 | 项目命名为 VSIX Scout，CLI 为 `vsix-scout`         | 名称直接表达“寻找正确 VSIX”的用途                        | 已接受 |
-| 2026-08-10 | MVP 只支持 Visual Studio Marketplace               | 收敛协议、测试和合规范围                                 | 已接受 |
-| 2026-08-10 | TypeScript monorepo，Node.js 20+，pnpm workspace   | 共享 core/provider/schema，同时隔离 CLI 与未来 Web       | 已接受 |
-| 2026-08-10 | 先 core/provider/CLI，后 Web                       | 兼容性正确性和脚本能力是首要价值                         | 已接受 |
-| 2026-08-10 | 默认选择 stable，pre-release 必须显式请求          | 默认行为更适合企业稳定环境                               | 已接受 |
-| 2026-08-10 | 精确平台优先，缺失时才使用 universal               | 防止误选其他平台包，同时保留官方通用包 fallback          | 已接受 |
-| 2026-08-10 | 只从官方 allowlist 来源下载，不托管 VSIX           | 维持来源可信度并降低供应链与合规风险                     | 已接受 |
-| 2026-08-10 | Phase 0 先进行真实数据探针                         | Marketplace 字段和边界需要证据验证，不能仅按理想模型实现 | 已接受 |
-| 2026-08-10 | Provider 接受上游额外平台值，CLI 单独限制用户目标  | 实际数据还包含 alpine、web 和 linux-armhf 等平台         | 已接受 |
-| 2026-08-10 | 资源模型同时保留 primary 和 fallback URL           | 已确认部分历史 CDN asset 失效，但官方 fallback 仍可用    | 已接受 |
-| 2026-08-10 | 固定 pnpm 10.34.5 并使用 Node 20 类型定义          | 保留 Node.js 20 运行时支持，同时在编译期约束 API 使用    | 已接受 |
-| 2026-08-10 | pre-release 请求采用严格渠道匹配                   | 避免用户明确请求预发布时静默回退到 stable                | 已接受 |
-| 2026-08-10 | 平台精确匹配只在同一扩展版本内优先                 | 保持“最新兼容版本”语义，较新 universal 优于较旧精确包    | 已接受 |
-| 2026-08-10 | engine 缺失或 range 非法时 fail closed             | 没有可靠证据时不得推断兼容                               | 已接受 |
-| 2026-08-10 | Provider 仅缓存成功结果，默认 TTL 为五分钟         | 减少重复大响应，同时避免暂时性错误被持久化               | 已接受 |
-| 2026-08-10 | manifest 仅在 Engine property 缺失时按需读取       | 保持协议正确性并控制历史版本的额外网络请求               | 已接受 |
-| 2026-08-10 | Provider 禁止自动 redirect                         | 防止上游响应静默绕过官方资源 host 边界                   | 已接受 |
-| 2026-08-10 | CLI 使用 Node.js `parseArgs`，不增加命令解析依赖   | Node 20 原生能力足够覆盖 MVP，减少运行时依赖面           | 已接受 |
-| 2026-08-10 | 下载默认拒绝覆盖，限制为 512 MiB、120 秒、5 次跳转 | 安全默认值并覆盖常见大型扩展                             | 已接受 |
-| 2026-08-10 | 下载文件通过同目录临时文件和原子 no-clobber 发布   | 保证完整文件才可见，并消除覆盖竞态                       | 已接受 |
-| 2026-08-10 | CLI JSON 输出 schemaVersion 固定为 1               | 为审批脚本提供明确兼容边界                               | 已接受 |
-| 2026-08-10 | 对外只发布单一 `vsix-scout` npm CLI 包             | monorepo 保留内部边界，用户无需安装 private workspace 包 | 已接受 |
-| 2026-08-10 | 0.1.0 发布包将内部模块和运行时依赖打入单文件       | 保持 Node 20 支持并实现干净环境、零运行时依赖安装        | 已接受 |
-| 2026-08-10 | CI 覆盖三系统和 Node 20/22/24，Actions 固定 commit | 验证跨平台兼容性并降低 CI 供应链漂移                     | 已接受 |
-| 2026-08-10 | Marketplace 提供 SHA-256 时下载必须匹配            | 在本地哈希可审计基础上增加上游完整性约束                 | 已接受 |
+| 日期       | 决策                                                     | 理由                                                           | 状态   |
+| ---------- | -------------------------------------------------------- | -------------------------------------------------------------- | ------ |
+| 2026-08-10 | 项目命名为 VSIX Scout，CLI 为 `vsix-scout`               | 名称直接表达“寻找正确 VSIX”的用途                              | 已接受 |
+| 2026-08-10 | MVP 只支持 Visual Studio Marketplace                     | 收敛协议、测试和合规范围                                       | 已接受 |
+| 2026-08-10 | TypeScript monorepo，Node.js 20+，pnpm workspace         | 共享 core/provider/schema，同时隔离 CLI 与未来 Web             | 已接受 |
+| 2026-08-10 | 先 core/provider/CLI，后 Web                             | 兼容性正确性和脚本能力是首要价值                               | 已接受 |
+| 2026-08-10 | 默认选择 stable，pre-release 必须显式请求                | 默认行为更适合企业稳定环境                                     | 已接受 |
+| 2026-08-10 | 精确平台优先，缺失时才使用 universal                     | 防止误选其他平台包，同时保留官方通用包 fallback                | 已接受 |
+| 2026-08-10 | 只从官方 allowlist 来源下载，不托管 VSIX                 | 维持来源可信度并降低供应链与合规风险                           | 已接受 |
+| 2026-08-10 | Phase 0 先进行真实数据探针                               | Marketplace 字段和边界需要证据验证，不能仅按理想模型实现       | 已接受 |
+| 2026-08-10 | Provider 接受上游额外平台值，CLI 单独限制用户目标        | 实际数据还包含 alpine、web 和 linux-armhf 等平台               | 已接受 |
+| 2026-08-10 | 资源模型同时保留 primary 和 fallback URL                 | 已确认部分历史 CDN asset 失效，但官方 fallback 仍可用          | 已接受 |
+| 2026-08-10 | 固定 pnpm 10.34.5 并使用 Node 20 类型定义                | 保留 Node.js 20 运行时支持，同时在编译期约束 API 使用          | 已接受 |
+| 2026-08-10 | pre-release 请求采用严格渠道匹配                         | 避免用户明确请求预发布时静默回退到 stable                      | 已接受 |
+| 2026-08-10 | 平台精确匹配只在同一扩展版本内优先                       | 保持“最新兼容版本”语义，较新 universal 优于较旧精确包          | 已接受 |
+| 2026-08-10 | engine 缺失或 range 非法时 fail closed                   | 没有可靠证据时不得推断兼容                                     | 已接受 |
+| 2026-08-10 | Provider 仅缓存成功结果，默认 TTL 为五分钟               | 减少重复大响应，同时避免暂时性错误被持久化                     | 已接受 |
+| 2026-08-10 | manifest 仅在 Engine property 缺失时按需读取             | 保持协议正确性并控制历史版本的额外网络请求                     | 已接受 |
+| 2026-08-10 | Provider 禁止自动 redirect                               | 防止上游响应静默绕过官方资源 host 边界                         | 已接受 |
+| 2026-08-10 | CLI 使用 Node.js `parseArgs`，不增加命令解析依赖         | Node 20 原生能力足够覆盖 MVP，减少运行时依赖面                 | 已接受 |
+| 2026-08-10 | 下载默认拒绝覆盖，限制为 512 MiB、120 秒、5 次跳转       | 安全默认值并覆盖常见大型扩展                                   | 已接受 |
+| 2026-08-10 | 下载文件通过同目录临时文件和原子 no-clobber 发布         | 保证完整文件才可见，并消除覆盖竞态                             | 已接受 |
+| 2026-08-10 | CLI JSON 输出 schemaVersion 固定为 1                     | 为审批脚本提供明确兼容边界                                     | 已接受 |
+| 2026-08-10 | 对外只发布单一 `vsix-scout` npm CLI 包                   | monorepo 保留内部边界，用户无需安装 private workspace 包       | 已接受 |
+| 2026-08-10 | 0.1.0 发布包将内部模块和运行时依赖打入单文件             | 保持 Node 20 支持并实现干净环境、零运行时依赖安装              | 已接受 |
+| 2026-08-10 | CI 覆盖三系统和 Node 20/22/24，Actions 固定 commit       | 验证跨平台兼容性并降低 CI 供应链漂移                           | 已接受 |
+| 2026-08-10 | Marketplace 提供 SHA-256 时下载必须匹配                  | 在本地哈希可审计基础上增加上游完整性约束                       | 已接受 |
+| 2026-08-11 | `v0.1.0` 使用 annotated tag 触发自动发布                 | 发布流程验证 tag、构建产物、SHA-256、npm provenance 和 Release | 已完成 |
+| 2026-08-12 | Phase 5 调整为纯静态 Web UI，企业 lockfile 顺延          | 当前首要需求是让分散用户在 OA 电脑或手机自助查询               | 已接受 |
+| 2026-08-12 | Web 首版只部署 GitHub Pages 并由浏览器直连 Marketplace   | 当前 CORS 已实测可用，无需维护服务端或数据库                   | 已接受 |
+| 2026-08-12 | Web 下载直接使用经 allowlist 校验的微软官方 URL          | 不承担 VSIX 存储、代理、内存处理和重新分发                     | 已接受 |
+| 2026-08-12 | Web 不声称验证下载文件，只标示 Marketplace reported hash | 浏览器不读取完整 VSIX；完整流式校验继续由 CLI 负责             | 已接受 |
+| 2026-08-12 | Open VSX 和企业 catalog 拆分为 Phase 7                   | 避免在 Web MVP 中混入暂时没有真实需求的 Provider 扩展          | 已接受 |
+| 2026-08-12 | Marketplace Provider 使用 Node/browser request adapter   | 只隔离 User-Agent、redirect 和 fetch receiver 差异，不复制规则 | 已接受 |
 
 ## 15. 变更记录
 
-| 日期       | 变更                                                                                                                   |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
-| 2026-08-10 | 根据原始项目交接材料创建项目定义基线，补充目标用户、产品原则、结果模型、验收标准、风险、待验证问题和七阶段路线图。     |
-| 2026-08-10 | 完成 Phase 0：建立工程基线、协议探针、内部模型、四类真实 fixtures、CI、安全 URL 策略和自动化验证。                     |
-| 2026-08-10 | 将工具链调整为 pnpm 10.34.5 和 Node 20 类型定义，修复 Node 20 CI 环境兼容性。                                          |
-| 2026-08-10 | 完成 Phase 1：实现纯 resolver、SemVer range、渠道/平台策略、确定性排序、确切版本、结构化解释和失败诊断。               |
-| 2026-08-10 | 完成 Phase 2：实现真实 Marketplace Provider、输入规范化、schema 校验、manifest fallback、网络策略和可选 live test。    |
-| 2026-08-10 | 完成 Phase 3：交付四个 CLI 命令、安全下载、流式 SHA-256、版本化 JSON、稳定退出码和端到端真实 VSIX 验证。               |
-| 2026-08-10 | 完成 Phase 4 工程实现：跨平台 CI、安全复核、下载完整性、开源治理文件、可复现 npm 打包与 tag 发布流程；正式发布待确认。 |
+| 日期       | 变更                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 2026-08-10 | 根据原始项目交接材料创建项目定义基线，补充目标用户、产品原则、结果模型、验收标准、风险、待验证问题和七阶段路线图。            |
+| 2026-08-10 | 完成 Phase 0：建立工程基线、协议探针、内部模型、四类真实 fixtures、CI、安全 URL 策略和自动化验证。                            |
+| 2026-08-10 | 将工具链调整为 pnpm 10.34.5 和 Node 20 类型定义，修复 Node 20 CI 环境兼容性。                                                 |
+| 2026-08-10 | 完成 Phase 1：实现纯 resolver、SemVer range、渠道/平台策略、确定性排序、确切版本、结构化解释和失败诊断。                      |
+| 2026-08-10 | 完成 Phase 2：实现真实 Marketplace Provider、输入规范化、schema 校验、manifest fallback、网络策略和可选 live test。           |
+| 2026-08-10 | 完成 Phase 3：交付四个 CLI 命令、安全下载、流式 SHA-256、版本化 JSON、稳定退出码和端到端真实 VSIX 验证。                      |
+| 2026-08-10 | 完成 Phase 4 工程实现：跨平台 CI、安全复核、下载完整性、开源治理文件、可复现 npm 打包与 tag 发布流程；正式发布待确认。        |
+| 2026-08-11 | 完成首个公开版本：`v0.1.0` Release Workflow、GitHub Release、npm publish、provenance 和发布资产均验证成功。                   |
+| 2026-08-12 | 根据实际 OA/内网工作流调整路线：Phase 5 改为 GitHub Pages 纯静态 Web UI，lockfile 顺延至 Phase 6，Provider 扩展拆为 Phase 7。 |
+| 2026-08-12 | 记录 Web MVP 的浏览器直连 Marketplace、官方 URL 跳转、无后端/数据库/VSIX 代理、共享 resolver 与下载校验边界。                 |
+| 2026-08-12 | 完成 Phase 5 工程实现和本地验收：Web UI、browser adapter、fixture parity、Pages workflow、真实 Chromium 查询和安全审计通过。  |

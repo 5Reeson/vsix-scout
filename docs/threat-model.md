@@ -1,7 +1,8 @@
 # Threat model and security review
 
-Reviewed: 2026-08-10. Scope: the 0.1.0 CLI, Marketplace provider, resolver,
-download path, terminal/JSON output, and npm/GitHub release workflow.
+Reviewed: 2026-08-12. Scope: the 0.1.0 CLI, Phase 5 static Web UI, Marketplace
+provider, resolver, download path, terminal/JSON output, and npm/GitHub release
+workflows.
 
 This is an engineering threat model, not a claim that Marketplace extensions
 are trusted or safe.
@@ -27,6 +28,9 @@ downloaded VSIX is opaque and is never executed.
 | Secret or path disclosure                  | No credential options; serialized errors omit causes; JSON returns only filename or user-supplied output path                        | A user can explicitly include sensitive text in command arguments or output paths          |
 | Dependency or CI compromise                | Minimal runtime bundle, production audit, lockfile, least-privilege workflow permissions, SHA-pinned actions, clean-package tests    | Registry, runner, maintainer account, or allowed action commit compromise remains possible |
 | Tag/package mismatch or incomplete release | Tag/version check, full release check, artifact SHA-256, draft GitHub release, npm provenance support                                | First npm publication requires a credential bootstrap and maintainer action                |
+| Untrusted Marketplace content in Web UI    | Zod normalization, React text rendering, no README/HTML rendering, no raw payload persistence                                        | Extension names and metadata may still contain misleading plain text                       |
+| Web download URL substitution              | Metadata URL normalization plus render-time HTTPS/host/credential/port allowlist validation; ordinary external anchor only           | The browser and permitted Microsoft/CDN infrastructure remain outside application control  |
+| VSIX memory or hosting exposure in Web     | Web code never fetches VSIX, creates Blob/ArrayBuffer content, hashes, proxies, caches, or hosts extension packages                  | The browser handles a user-initiated navigation/download outside the Web application       |
 
 ## Explicit non-goals
 

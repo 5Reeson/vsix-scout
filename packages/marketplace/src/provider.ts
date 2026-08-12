@@ -21,6 +21,10 @@ import {
 } from './normalize.js';
 import { MarketplaceManifestSchema } from './raw-schema.js';
 import { parseMarketplaceExtensionReference } from './reference.js';
+import {
+  nodeMarketplaceRequestAdapter,
+  type MarketplaceRequestAdapter,
+} from './request-adapter.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -45,6 +49,7 @@ export interface MarketplaceProviderOptions {
   readonly manifestConcurrency?: number;
   readonly maxRetryDelayMs?: number;
   readonly userAgent?: string;
+  readonly requestAdapter?: MarketplaceRequestAdapter;
   readonly now?: () => number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -52,6 +57,21 @@ export interface MarketplaceProviderOptions {
 interface CacheEntry {
   readonly expiresAt: number;
   readonly record: ExtensionRecord;
+  readonly attemptedManifestKeys: ReadonlySet<string>;
+}
+
+export interface MarketplaceExtensionRequestOptions {
+  /** Maximum number of missing manifest assets to inspect in this request. */
+  readonly manifestLimit?: number;
+  /** Limit manifest fallback work to one release channel. */
+  readonly channel?: 'stable' | 'pre-release';
+  /** Limit manifest fallback work to an exact platform plus universal builds. */
+  readonly platform?: string;
+}
+
+interface ManifestLoadResult {
+  readonly manifests: ManifestFixtureMap;
+  readonly attemptedKeys: ReadonlySet<string>;
 }
 
 interface RequestJsonOptions {
@@ -213,13 +233,17 @@ export class MarketplaceProvider implements ExtensionProvider {
   readonly #manifestConcurrency: number;
   readonly #maxRetryDelayMs: number;
   readonly #userAgent: string;
+  readonly #requestAdapter: MarketplaceRequestAdapter;
   readonly #now: () => number;
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #cache = new Map<string, CacheEntry>();
-  readonly #inFlight = new Map<string, Promise<ExtensionRecord>>();
+  readonly #inFlight = new Map<
+    string,
+    Promise<Omit<CacheEntry, 'expiresAt'>>
+  >();
 
   constructor(options: MarketplaceProviderOptions = {}) {
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = (options.fetch ?? globalThis.fetch).bind(globalThis);
     this.#timeoutMs = requireIntegerOption(
       'timeoutMs',
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -261,6 +285,8 @@ export class MarketplaceProvider implements ExtensionProvider {
       0,
     );
     this.#userAgent = options.userAgent ?? `vsix-scout/${PROJECT_VERSION}`;
+    this.#requestAdapter =
+      options.requestAdapter ?? nodeMarketplaceRequestAdapter;
     this.#now = options.now ?? Date.now;
     this.#sleep =
       options.sleep ??
@@ -274,15 +300,19 @@ export class MarketplaceProvider implements ExtensionProvider {
     this.#cache.clear();
   }
 
-  async getExtension(reference: ExtensionReference): Promise<ExtensionRecord> {
+  async getExtension(
+    reference: ExtensionReference,
+    options: MarketplaceExtensionRequestOptions = {},
+  ): Promise<ExtensionRecord> {
     const normalizedReference = parseMarketplaceExtensionReference(
       reference.id,
     );
     const cached = this.#cache.get(normalizedReference.id);
     if (cached !== undefined && cached.expiresAt > this.#now()) {
       this.#cache.delete(normalizedReference.id);
-      this.#cache.set(normalizedReference.id, cached);
-      return cached.record;
+      const enriched = await this.#enrichRecord(cached, options);
+      this.#cache.set(normalizedReference.id, enriched);
+      return enriched.record;
     }
     if (cached !== undefined) {
       this.#cache.delete(normalizedReference.id);
@@ -290,22 +320,55 @@ export class MarketplaceProvider implements ExtensionProvider {
 
     const existingRequest = this.#inFlight.get(normalizedReference.id);
     if (existingRequest !== undefined) {
-      return existingRequest;
+      const entry = await existingRequest;
+      const cachedAfterRequest = this.#cache.get(normalizedReference.id);
+      const baseEntry =
+        cachedAfterRequest !== undefined
+          ? cachedAfterRequest
+          : { ...entry, expiresAt: this.#now() + this.#cacheTtlMs };
+      const enriched = await this.#enrichRecord(baseEntry, options);
+      if (cachedAfterRequest !== undefined) {
+        this.#cache.set(normalizedReference.id, enriched);
+      }
+      return enriched.record;
     }
 
-    const request = this.#loadExtension(normalizedReference);
+    const request = this.#loadExtension(normalizedReference, options);
     this.#inFlight.set(normalizedReference.id, request);
 
     try {
-      const record = await request;
-      this.#cacheRecord(normalizedReference.id, record);
-      return record;
+      const entry = await request;
+      this.#cacheRecord(normalizedReference.id, entry);
+      return entry.record;
     } finally {
       this.#inFlight.delete(normalizedReference.id);
     }
   }
 
-  #cacheRecord(extensionId: string, record: ExtensionRecord): void {
+  hasPendingManifests(
+    reference: ExtensionReference,
+    options: Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'> = {},
+  ): boolean {
+    const normalizedReference = parseMarketplaceExtensionReference(
+      reference.id,
+    );
+    const cached = this.#cache.get(normalizedReference.id);
+    if (cached === undefined || cached.expiresAt <= this.#now()) {
+      return false;
+    }
+    return (
+      this.#missingManifestAssets(
+        cached.record,
+        options,
+        cached.attemptedManifestKeys,
+      ).length > 0
+    );
+  }
+
+  #cacheRecord(
+    extensionId: string,
+    entry: Omit<CacheEntry, 'expiresAt'>,
+  ): void {
     if (this.#cacheTtlMs === 0 || this.#maxCacheEntries === 0) {
       return;
     }
@@ -327,13 +390,14 @@ export class MarketplaceProvider implements ExtensionProvider {
 
     this.#cache.set(extensionId, {
       expiresAt: now + this.#cacheTtlMs,
-      record,
+      ...entry,
     });
   }
 
   async #loadExtension(
     reference: ExtensionReference,
-  ): Promise<ExtensionRecord> {
+    options: MarketplaceExtensionRequestOptions,
+  ): Promise<Omit<CacheEntry, 'expiresAt'>> {
     const rawResponse = await this.#requestJson(
       MARKETPLACE_QUERY_URL,
       {
@@ -341,7 +405,6 @@ export class MarketplaceProvider implements ExtensionProvider {
         headers: {
           Accept: `application/json;api-version=${MARKETPLACE_API_VERSION}`,
           'Content-Type': 'application/json',
-          'User-Agent': this.#userAgent,
         },
         body: JSON.stringify({
           filters: [
@@ -367,31 +430,113 @@ export class MarketplaceProvider implements ExtensionProvider {
       rawResponse,
       reference.id,
     );
-    const manifests = await this.#loadMissingManifests(initialRecord);
-    return Object.keys(manifests).length === 0
-      ? initialRecord
-      : normalizeMarketplaceResponse(rawResponse, reference.id, manifests);
+    const loaded = await this.#loadMissingManifests(
+      initialRecord,
+      options,
+      new Set(),
+    );
+    return {
+      record:
+        Object.keys(loaded.manifests).length === 0
+          ? initialRecord
+          : normalizeMarketplaceResponse(
+              rawResponse,
+              reference.id,
+              loaded.manifests,
+            ),
+      attemptedManifestKeys: loaded.attemptedKeys,
+    };
+  }
+
+  async #enrichRecord(
+    cached: CacheEntry,
+    options: MarketplaceExtensionRequestOptions,
+  ): Promise<CacheEntry> {
+    const loaded = await this.#loadMissingManifests(
+      cached.record,
+      options,
+      cached.attemptedManifestKeys,
+    );
+    if (loaded.attemptedKeys.size === 0) {
+      return cached;
+    }
+
+    const manifests = loaded.manifests;
+    const versions = cached.record.versions.map((version) => {
+      if (version.engineSource !== 'missing') return version;
+      const asset = version.assets.manifest;
+      const rawManifest = [asset?.primaryUri, asset?.fallbackUri]
+        .filter((url): url is string => url !== undefined)
+        .map((url) => manifests[url])
+        .find((manifest) => manifest !== undefined);
+      if (rawManifest === undefined) return version;
+      const manifest = MarketplaceManifestSchema.parse(rawManifest);
+      const engine = manifest.engines?.vscode.trim();
+      if (engine === undefined || engine === '') return version;
+      return {
+        ...version,
+        engine,
+        engineSource: 'manifest' as const,
+        dependencies: manifest.extensionDependencies ?? version.dependencies,
+        extensionPack: manifest.extensionPack ?? version.extensionPack,
+      };
+    });
+
+    return {
+      expiresAt: cached.expiresAt,
+      record: { ...cached.record, versions },
+      attemptedManifestKeys: new Set([
+        ...cached.attemptedManifestKeys,
+        ...loaded.attemptedKeys,
+      ]),
+    };
+  }
+
+  #missingManifestAssets(
+    record: ExtensionRecord,
+    options: Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'>,
+    attemptedKeys: ReadonlySet<string>,
+  ): readonly { readonly key: string; readonly asset: ExtensionAsset }[] {
+    const assetsByKey = new Map<string, ExtensionAsset>();
+    const platform = options.platform?.trim().toLowerCase();
+
+    for (const version of record.versions) {
+      const asset = version.assets.manifest;
+      const candidatePlatform = version.targetPlatform.toLowerCase();
+      if (
+        version.engineSource !== 'missing' ||
+        asset === undefined ||
+        (options.channel !== undefined &&
+          version.channel !== options.channel) ||
+        (platform !== undefined &&
+          candidatePlatform !== platform &&
+          candidatePlatform !== 'universal')
+      ) {
+        continue;
+      }
+      const key = `${asset.primaryUri ?? ''}\n${asset.fallbackUri ?? ''}`;
+      if (!attemptedKeys.has(key)) assetsByKey.set(key, asset);
+    }
+
+    return [...assetsByKey].map(([key, asset]) => ({ key, asset }));
   }
 
   async #loadMissingManifests(
     record: ExtensionRecord,
-  ): Promise<ManifestFixtureMap> {
-    const assetsByKey = new Map<string, ExtensionAsset>();
-
-    for (const version of record.versions) {
-      const asset = version.assets.manifest;
-      if (version.engineSource === 'missing' && asset !== undefined) {
-        assetsByKey.set(
-          `${asset.primaryUri ?? ''}\n${asset.fallbackUri ?? ''}`,
-          asset,
-        );
-      }
-    }
+    options: MarketplaceExtensionRequestOptions,
+    attemptedKeys: ReadonlySet<string>,
+  ): Promise<ManifestLoadResult> {
+    const limit =
+      options.manifestLimit === undefined
+        ? undefined
+        : requireIntegerOption('manifestLimit', options.manifestLimit, 0);
+    const pending = this.#missingManifestAssets(record, options, attemptedKeys);
+    const selected = limit === undefined ? pending : pending.slice(0, limit);
 
     const loaded = await mapWithConcurrency(
-      [...assetsByKey.values()],
+      selected,
       this.#manifestConcurrency,
-      (asset) => this.#loadManifest(asset),
+      ({ asset }) => this.#loadManifest(asset),
     );
     const manifests: Record<string, unknown> = {};
 
@@ -401,7 +546,10 @@ export class MarketplaceProvider implements ExtensionProvider {
       }
     }
 
-    return manifests;
+    return {
+      manifests,
+      attemptedKeys: new Set(selected.map(({ key }) => key)),
+    };
   }
 
   async #loadManifest(
@@ -419,7 +567,6 @@ export class MarketplaceProvider implements ExtensionProvider {
           {
             headers: {
               Accept: 'application/json',
-              'User-Agent': this.#userAgent,
             },
           },
           {
@@ -479,16 +626,21 @@ export class MarketplaceProvider implements ExtensionProvider {
     init: RequestInit,
     options: RequestJsonOptions,
   ): Promise<unknown | undefined> {
+    this.#requestAdapter.validateRequest(url);
+
     for (let attempt = 0; attempt <= this.#maxRetries; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
 
       try {
-        const response = await this.#fetch(url, {
-          ...init,
-          redirect: 'manual',
-          signal: controller.signal,
-        });
+        const response = await this.#fetch(
+          url,
+          this.#requestAdapter.prepareRequest(
+            { ...init, signal: controller.signal },
+            this.#userAgent,
+          ),
+        );
+        this.#requestAdapter.validateResponse(response, url);
 
         if (
           options.allowNotFound === true &&
