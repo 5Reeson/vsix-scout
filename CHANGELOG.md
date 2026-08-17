@@ -4,6 +4,28 @@ This project follows [Semantic Versioning](https://semver.org/). Before 1.0,
 minor releases may change CLI behavior; the versioned JSON compatibility policy
 is documented separately in the CLI guide.
 
+## 0.2.0 - 2026-08-18
+
+### Added
+
+- Keyword search across CLI (`search` command, "Did you mean?" suggestions) and
+  web (suggestion list under failed queries).
+- About page on the web with background and privacy notes (zh/en), plus a
+  multi-line footer.
+- Deterministic `marketplace.visualstudio.com` VSIX download endpoint (Pattern
+  B) as the primary download location; the metadata CDN asset (Pattern A) is
+  shown and used as a fallback. CLI `resolve`/JSON now expose both links via
+  `selected.marketplaceUrl` and `selected.assetUrl`.
+- CLI invalid-input errors now include a complete, copy-pasteable example
+  command.
+
+### Changed
+
+- Download and download-link selection prefer the Marketplace endpoint (Pattern
+  B), falling back to the CDN asset URL.
+- Web copy updated to "Visual Studio Code" and clearer query section wording;
+  required-field validation messages follow the selected page language.
+
 ## 0.1.0 - 2026-08-11
 
 ### Added
