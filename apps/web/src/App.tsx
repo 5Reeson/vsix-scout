@@ -19,14 +19,21 @@ import {
 } from '@vsix-scout/shared';
 
 import { webErrorMessage, type WebErrorMessage } from './error-message.js';
+import { en } from './i18n/en.js';
 import {
   useLanguage,
   type Interpolation,
   type Locale,
   type MessageKey,
 } from './i18n/index.js';
+import { zh } from './i18n/zh.js';
+import {
+  useSearchSuggestions,
+  type SuggestionsState,
+} from './search-suggestions.js';
 import {
   resolveWebQuery,
+  shouldSuggestForError,
   type WebResolution,
   type WebResolvedVersion,
 } from './web-resolution.js';
@@ -39,6 +46,7 @@ const DEFAULT_VSCODE = '1.95.0';
 const DEFAULT_PLATFORM: RequestedTargetPlatform = 'win32-x64';
 const INITIAL_VISIBLE_VERSIONS = 8;
 const MANIFEST_BATCH_SIZE = 20;
+const TOAST_DURATION_MS = 3000;
 // After resolving, park the result title this far down the viewport so the
 // query form above and the result below stay visible at the same time.
 const RESULT_SCROLL_FRACTION = 0.35;
@@ -74,6 +82,8 @@ interface FormState {
   readonly platform: RequestedTargetPlatform;
   readonly channel: ReleaseChannel;
 }
+
+type Page = 'home' | 'about';
 
 type QueryState =
   | { readonly status: 'idle' }
@@ -219,6 +229,9 @@ function scrollToResult(): void {
 
 export function App() {
   const { t } = useLanguage();
+  const [page, setPage] = useState<Page>(() =>
+    window.location.hash === '#/about' ? 'about' : 'home',
+  );
   const [form, setForm] = useState<FormState>(initialFormState);
   const [queries, setQueries] = useState<ChannelQueryState>(IDLE_QUERIES);
   const [visibleVersions, setVisibleVersions] = useState<ChannelNumberState>({
@@ -227,13 +240,15 @@ export function App() {
   });
   const [loadingMoreChannel, setLoadingMoreChannel] =
     useState<ReleaseChannel | null>(null);
-  const [copyStatus, setCopyStatus] = useState('');
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const toastSequence = useRef(0);
   const initialQueryStarted = useRef(false);
   const cachedScope = useRef<string | null>(null);
   const requestSequence = useRef<ChannelNumberState>({
     stable: 0,
     'pre-release': 0,
   });
+  const suggestions = useSearchSuggestions(provider);
 
   const query = queries[form.channel];
 
@@ -242,6 +257,7 @@ export function App() {
   }
 
   async function runQuery(nextForm: FormState): Promise<void> {
+    suggestions.reset();
     const nextScope = queryScope(nextForm);
     const requestId = requestSequence.current[nextForm.channel] + 1;
     requestSequence.current = {
@@ -265,7 +281,6 @@ export function App() {
         [nextForm.channel]: INITIAL_VISIBLE_VERSIONS,
       }));
     }
-    setCopyStatus('');
     savePreferences(nextForm);
     saveShareableQuery(nextForm);
 
@@ -285,6 +300,9 @@ export function App() {
         status: 'error',
         error: webErrorMessage(error),
       });
+      if (shouldSuggestForError(error, nextForm.extension)) {
+        void suggestions.search(nextForm.extension.trim());
+      }
     }
   }
 
@@ -317,9 +335,16 @@ export function App() {
     }
   }
 
+  function pickSuggestion(extensionId: string): void {
+    const nextForm = { ...form, extension: extensionId };
+    setForm(nextForm);
+    void runQuery(nextForm);
+  }
+
   useEffect(() => {
     if (initialQueryStarted.current) return;
     initialQueryStarted.current = true;
+    if (window.location.hash === '#/about') return;
     const params = new URLSearchParams(window.location.search);
     if (
       params.has('extension') &&
@@ -346,6 +371,15 @@ export function App() {
     }
   }, []);
 
+  // Hash-based pages: `#/about` renders the About page, anything else is home.
+  useEffect(() => {
+    function onHashChange(): void {
+      setPage(window.location.hash === '#/about' ? 'about' : 'home');
+    }
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
   // Scroll as soon as the loading state is committed, so the viewport moves on
   // the very first query too. Scroll after render rather than synchronously in
   // runQuery: at click time React has not committed the loading UI yet, and a
@@ -361,78 +395,102 @@ export function App() {
     void runQuery(form);
   }
 
+  function showToast(tone: 'success' | 'error', message: string): void {
+    toastSequence.current += 1;
+    setToast({ key: toastSequence.current, tone, message });
+  }
+
   async function handleCopy(value: string, label: string): Promise<void> {
     try {
       await copyText(value);
-      setCopyStatus(t('copy.copied', { label }));
+      showToast('success', t('copy.copied', { label }));
     } catch {
-      setCopyStatus(t('copy.failed', { label }));
+      showToast('error', t('copy.failed', { label }));
     }
   }
+
+  // Auto-dismiss the toast after a fixed window; the fade-out runs inside the
+  // CSS animation, so unmounting here is invisible.
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = window.setTimeout(() => setToast(null), TOAST_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const isLoading = query.status === 'loading';
 
   return (
     <div className="page-shell">
       <DotMatrixRails />
-      <SiteHeader />
+      <SiteHeader page={page} />
       <main>
-        <HeroAsciiReveal />
-        <SectionDivider />
+        {page === 'about' ? (
+          <AboutPage />
+        ) : (
+          <>
+            <HeroAsciiReveal />
+            <SectionDivider />
 
-        <section className="workflow-section" aria-labelledby="query-title">
-          <div className="workflow-content">
-            <header className="section-heading">
-              <h2 id="query-title">{t('section.queryTitle')}</h2>
-              <p>{t('section.queryDescription')}</p>
-            </header>
-            <ResolveForm
-              form={form}
-              isLoading={isLoading}
-              onChange={(nextForm) => {
-                setForm(nextForm);
-                setCopyStatus('');
-              }}
-              onCommit={saveShareableQuery}
-              onSubmit={submit}
-              hasError={query.status === 'error'}
-            />
-          </div>
-        </section>
+            <section className="workflow-section" aria-labelledby="query-title">
+              <div className="workflow-content">
+                <header className="section-heading">
+                  <h2 id="query-title">{t('section.queryTitle')}</h2>
+                  <p>{t('section.queryDescription')}</p>
+                </header>
+                <ResolveForm
+                  form={form}
+                  isLoading={isLoading}
+                  onChange={(nextForm) => {
+                    setForm(nextForm);
+                  }}
+                  onCommit={saveShareableQuery}
+                  onSubmit={submit}
+                  hasError={query.status === 'error'}
+                />
+              </div>
+            </section>
 
-        <SectionDivider />
+            <SectionDivider />
 
-        <section
-          className="result-section"
-          aria-labelledby="result-title"
-          aria-live="polite"
-        >
-          <div className="workflow-content">
-            <h2 id="result-title">{t('section.resultTitle')}</h2>
-            {query.status === 'idle' && <IdleState />}
-            {query.status === 'loading' && <LoadingState />}
-            {query.status === 'error' && <ErrorState error={query.error} />}
-            {query.status === 'success' && (
-              <RecommendedResult
-                data={query.data}
-                visibleVersions={visibleVersions[form.channel]}
-                isLoadingMore={loadingMoreChannel === form.channel}
-                onShowMore={() => void showMore()}
-                onCopy={handleCopy}
-              />
-            )}
-            <p className="copy-status" role="status" aria-live="polite">
-              {copyStatus}
-            </p>
-          </div>
-        </section>
+            <section
+              className="result-section"
+              aria-labelledby="result-title"
+              aria-live="polite"
+            >
+              <div className="workflow-content">
+                <h2 id="result-title">{t('section.resultTitle')}</h2>
+                {query.status === 'idle' && <IdleState />}
+                {query.status === 'loading' && <LoadingState />}
+                {query.status === 'error' && (
+                  <>
+                    <ErrorState error={query.error} />
+                    <SuggestionsBlock
+                      state={suggestions.state}
+                      onPick={pickSuggestion}
+                    />
+                  </>
+                )}
+                {query.status === 'success' && (
+                  <RecommendedResult
+                    data={query.data}
+                    visibleVersions={visibleVersions[form.channel]}
+                    isLoadingMore={loadingMoreChannel === form.channel}
+                    onShowMore={() => void showMore()}
+                    onCopy={handleCopy}
+                  />
+                )}
+              </div>
+            </section>
+          </>
+        )}
       </main>
       <SiteFooter />
+      <Toast toast={toast} />
     </div>
   );
 }
 
-function SiteHeader() {
+function SiteHeader({ page }: { readonly page: Page }) {
   const { t, locale, setLocale } = useLanguage();
   const nextLocale: Locale = locale === 'zh' ? 'en' : 'zh';
   return (
@@ -459,7 +517,13 @@ function SiteHeader() {
               EN
             </span>
           </button>
-          <a href="#about">{t('nav.about')}</a>
+          <a
+            href="#/about"
+            className={page === 'about' ? 'is-active' : undefined}
+            aria-current={page === 'about' ? 'page' : undefined}
+          >
+            {t('nav.about')}
+          </a>
           <a
             href="https://github.com/5Reeson/vsix-scout"
             target="_blank"
@@ -526,6 +590,18 @@ function SectionDivider() {
   return <div className="section-divider" aria-hidden="true" />;
 }
 
+// The inputs rely on the browser's built-in `required` validation, whose
+// native bubble follows the browser locale rather than the page language.
+// `setCustomValidity` replaces that message with one in the current language.
+function applyRequiredMessage(
+  event: FormEvent<HTMLInputElement>,
+  message: string,
+): void {
+  if (event.currentTarget.validity.valueMissing) {
+    event.currentTarget.setCustomValidity(message);
+  }
+}
+
 function ResolveForm({
   form,
   isLoading,
@@ -559,9 +635,13 @@ function ResolveForm({
           spellCheck="false"
           placeholder={t('form.extensionPlaceholder')}
           value={form.extension}
-          onChange={(event) =>
-            onChange({ ...form, extension: event.target.value })
+          onInvalid={(event) =>
+            applyRequiredMessage(event, t('form.requiredExtension'))
           }
+          onChange={(event) => {
+            event.currentTarget.setCustomValidity('');
+            onChange({ ...form, extension: event.target.value });
+          }}
           onBlur={(event) =>
             onCommit({ ...form, extension: event.currentTarget.value })
           }
@@ -581,9 +661,13 @@ function ResolveForm({
           inputMode="decimal"
           placeholder={t('form.vscodePlaceholder')}
           value={form.vscode}
-          onChange={(event) =>
-            onChange({ ...form, vscode: event.target.value })
+          onInvalid={(event) =>
+            applyRequiredMessage(event, t('form.requiredVersion'))
           }
+          onChange={(event) => {
+            event.currentTarget.setCustomValidity('');
+            onChange({ ...form, vscode: event.target.value });
+          }}
           onBlur={(event) =>
             onCommit({ ...form, vscode: event.currentTarget.value })
           }
@@ -844,6 +928,62 @@ function ErrorState({ error }: { readonly error: WebErrorMessage }) {
   );
 }
 
+function SuggestionsBlock({
+  state,
+  onPick,
+}: {
+  readonly state: SuggestionsState;
+  readonly onPick: (extensionId: string) => void;
+}) {
+  const { t } = useLanguage();
+  if (state.status === 'idle' || state.status === 'error') {
+    // A failed suggestion search is silent: the primary error already explains
+    // the resolve failure, and re-attempting search on retry resets this state.
+    return null;
+  }
+  if (state.status === 'loading') {
+    return <p className="suggestions-note">{t('suggestions.loading')}</p>;
+  }
+  if (state.items.length === 0) {
+    return (
+      <p className="suggestions-note">
+        {t('suggestions.empty', { keyword: state.keyword })}
+      </p>
+    );
+  }
+  return (
+    <section className="suggestions" aria-labelledby="suggestions-title">
+      <h3 id="suggestions-title">
+        {t('suggestions.title', { keyword: state.keyword })}
+      </h3>
+      <ul className="suggestion-list">
+        {state.items.map((item) => (
+          <li key={item.id}>
+            <button
+              type="button"
+              className="suggestion-item"
+              onClick={() => onPick(item.id)}
+            >
+              <span className="suggestion-identity">
+                <strong>{item.displayName ?? item.name}</strong>
+                <code>{item.id}</code>
+              </span>
+              <span className="suggestion-installs">
+                {t('suggestions.installs', {
+                  count: item.installCount.toLocaleString('en-US'),
+                })}
+              </span>
+              <span className="suggestion-action" aria-hidden="true">
+                {t('suggestions.use')} →
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function RecommendedResult({
   data,
   visibleVersions,
@@ -922,31 +1062,40 @@ function RecommendedResult({
         </div>
 
         <div className="result-actions">
-          {item.downloadUrl === undefined ? (
-            <p className="download-unavailable">{t('result.noDownloadUrl')}</p>
-          ) : (
-            <>
-              <a
-                className="download-button"
-                href={item.downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer external"
-              >
-                <span aria-hidden="true">&gt;</span>
-                {t('result.download')}
-                <span aria-hidden="true">↗</span>
-              </a>
+          <a
+            className="download-button"
+            href={item.downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer external"
+          >
+            <span aria-hidden="true">&gt;</span>
+            {t('result.download')}
+            <span aria-hidden="true">↗</span>
+          </a>
+          <div className="copy-links">
+            <button
+              className="text-action"
+              type="button"
+              onClick={() =>
+                void onCopy(item.downloadUrl, t('result.copyMarketplaceLabel'))
+              }
+            >
+              <CopyIcon />
+              {t('result.copyMarketplace')}
+            </button>
+            {item.alternateUrl !== undefined && (
               <button
                 className="text-action"
                 type="button"
                 onClick={() =>
-                  void onCopy(item.downloadUrl ?? '', t('result.copyLinkLabel'))
+                  void onCopy(item.alternateUrl ?? '', t('result.copyCdnLabel'))
                 }
               >
-                {t('result.copyLink')}
+                <CopyIcon />
+                {t('result.copyCdn')}
               </button>
-            </>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -970,6 +1119,7 @@ function RecommendedResult({
               )
             }
           >
+            <CopyIcon />
             {t('result.copySha')}
           </button>
           <code>{resolution.selected.upstreamSha256}</code>
@@ -1065,11 +1215,181 @@ function VersionRow({ item }: { readonly item: WebResolvedVersion }) {
 function SiteFooter() {
   const { t } = useLanguage();
   return (
-    <footer id="about">
+    <footer>
       <div className="footer-inner">
         <p>{t('footer.line1')}</p>
         <p>{t('footer.line2')}</p>
       </div>
     </footer>
+  );
+}
+
+const ABOUT_FOR_WHOM_KEYS = [
+  'about.forWhom.1',
+  'about.forWhom.2',
+  'about.forWhom.3',
+] as const satisfies readonly MessageKey[];
+
+const ABOUT_HOW_KEYS = [
+  'about.how.1',
+  'about.how.2',
+  'about.how.3',
+] as const satisfies readonly MessageKey[];
+
+// 每个卡片同时展示中文与英文标题：当前语言为主标题，另一种语言作为
+// 次要标题并列显示（`lang` 标注每种语言的实际语言，便于屏幕阅读器发音）。
+function AboutSectionTitle({
+  id,
+  messageKey,
+}: {
+  readonly id: string;
+  readonly messageKey: MessageKey;
+}) {
+  const { locale } = useLanguage();
+  const zhTitle = zh[messageKey];
+  const enTitle = en[messageKey];
+  const primary = locale === 'zh' ? zhTitle : enTitle;
+  const alt = locale === 'zh' ? enTitle : zhTitle;
+  const altLang: Locale = locale === 'zh' ? 'en' : 'zh';
+  return (
+    <h2 id={id}>
+      <span lang={locale}>{primary}</span>
+      <span className="about-title-alt" lang={altLang}>
+        {alt}
+      </span>
+    </h2>
+  );
+}
+
+function AboutBulletList({
+  items,
+  ordered,
+}: {
+  readonly items: readonly MessageKey[];
+  readonly ordered: boolean;
+}) {
+  const { t } = useLanguage();
+  const Tag = ordered ? 'ol' : 'ul';
+  return (
+    <Tag className="terminal-list">
+      {items.map((key) => (
+        <li key={key}>
+          <span aria-hidden="true">&gt;</span>
+          <span>{t(key)}</span>
+        </li>
+      ))}
+    </Tag>
+  );
+}
+
+function AboutPage() {
+  const { t } = useLanguage();
+  return (
+    <div className="about-page">
+      <SectionDivider />
+      <div className="workflow-content about-content">
+        <header className="about-heading">
+          <p className="state-kicker">$ about</p>
+          <h1>{t('about.title')}</h1>
+          <p className="about-lead">{t('about.lead')}</p>
+        </header>
+
+        <section
+          className="about-card"
+          aria-labelledby="about-background-title"
+        >
+          <AboutSectionTitle
+            id="about-background-title"
+            messageKey="about.background.title"
+          />
+          <p className="about-body">{t('about.background.body')}</p>
+        </section>
+
+        <section className="about-card" aria-labelledby="about-forwhom-title">
+          <AboutSectionTitle
+            id="about-forwhom-title"
+            messageKey="about.forWhom.title"
+          />
+          <AboutBulletList items={ABOUT_FOR_WHOM_KEYS} ordered={false} />
+        </section>
+
+        <section className="about-card" aria-labelledby="about-how-title">
+          <AboutSectionTitle
+            id="about-how-title"
+            messageKey="about.how.title"
+          />
+          <AboutBulletList items={ABOUT_HOW_KEYS} ordered={true} />
+        </section>
+
+        <section className="about-card" aria-labelledby="about-privacy-title">
+          <AboutSectionTitle
+            id="about-privacy-title"
+            messageKey="about.privacy.title"
+          />
+          <p className="about-body">{t('about.privacy')}</p>
+        </section>
+
+        <a className="about-back" href="#/">
+          <span aria-hidden="true">←</span>
+          {t('about.back')}
+        </a>
+      </div>
+    </div>
+  );
+}
+
+interface ToastMessage {
+  readonly key: number;
+  readonly tone: 'success' | 'error';
+  readonly message: string;
+}
+
+function Toast({ toast }: { readonly toast: ToastMessage | null }) {
+  if (toast === null) return null;
+  return (
+    <div
+      className={`toast${toast.tone === 'error' ? ' toast-error' : ''}`}
+      key={toast.key}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span className="toast-glyph" aria-hidden="true">
+        {toast.tone === 'error' ? '!' : '✓'}
+      </span>
+      <span>{toast.message}</span>
+    </div>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      className="copy-icon"
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect
+        x="8"
+        y="8"
+        width="12"
+        height="12"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

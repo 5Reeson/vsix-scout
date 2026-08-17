@@ -1,10 +1,14 @@
-import type {
-  ExtensionAsset,
-  ExtensionRecord,
-  ExtensionVersionCandidate,
-  ResolutionResult,
+import {
+  resolutionDownloadLinks,
+  type ExtensionAsset,
+  type ExtensionRecord,
+  type ExtensionVersionCandidate,
+  type ResolutionResult,
 } from '@vsix-scout/core';
-import { JSON_SCHEMA_VERSION } from '@vsix-scout/shared';
+import {
+  JSON_SCHEMA_VERSION,
+  type MarketplaceSearchResult,
+} from '@vsix-scout/shared';
 
 export interface VersionFilters {
   readonly channel: 'stable' | 'pre-release';
@@ -38,7 +42,7 @@ export function resolutionJson(
   command: 'resolve' | 'download',
   result: ResolutionResult,
 ): Readonly<Record<string, unknown>> {
-  const vsixUrl = preferredAssetUrl(result.selected.assets.vsix);
+  const links = resolutionDownloadLinks(result);
   const manifestUrl = preferredAssetUrl(result.selected.assets.manifest);
 
   return {
@@ -52,7 +56,8 @@ export function resolutionJson(
       targetPlatform: result.selected.targetPlatform,
       channel: result.selected.channel,
       publishedAt: result.selected.publishedAt,
-      ...(vsixUrl === undefined ? {} : { assetUrl: vsixUrl }),
+      ...(links.alternate === undefined ? {} : { assetUrl: links.alternate }),
+      marketplaceUrl: links.primary,
       ...(manifestUrl === undefined ? {} : { manifestUrl }),
       ...(result.selected.upstreamSha256 === undefined
         ? {}
@@ -118,6 +123,53 @@ export function inspectJson(
   };
 }
 
+export function searchJson(
+  keyword: string,
+  results: readonly MarketplaceSearchResult[],
+): Readonly<Record<string, unknown>> {
+  return {
+    schemaVersion: JSON_SCHEMA_VERSION,
+    command: 'search',
+    keyword,
+    results: results.map((result) => ({
+      id: result.id,
+      publisher: result.publisher,
+      name: result.name,
+      ...(result.displayName === undefined
+        ? {}
+        : { displayName: result.displayName }),
+      installCount: result.installCount,
+      ...(result.lastUpdated === undefined
+        ? {}
+        : { lastUpdated: result.lastUpdated }),
+    })),
+  };
+}
+
+function formatInstalls(value: number): string {
+  return value.toLocaleString('en-US');
+}
+
+export function renderSearch(
+  keyword: string,
+  results: readonly MarketplaceSearchResult[],
+): string {
+  if (results.length === 0) {
+    return `No extensions matched "${keyword}".\n`;
+  }
+
+  const rows = [
+    ['ID', 'DISPLAY', 'INSTALLS', 'PUBLISHED'],
+    ...results.map((result) => [
+      result.id,
+      result.displayName ?? '-',
+      formatInstalls(result.installCount),
+      result.lastUpdated ?? '-',
+    ]),
+  ];
+  return `Search results for "${keyword}" (ranked by installs):\n\n${formatTable(rows)}\n`;
+}
+
 export function formatJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -148,6 +200,10 @@ function formatTable(rows: readonly (readonly string[])[]): string {
 }
 
 export function renderResolution(result: ResolutionResult): string {
+  const links = resolutionDownloadLinks(result);
+  const primaryLabel = 'VSIX (Marketplace):';
+  const alternateLabel = 'VSIX (CDN):';
+  const labelWidth = Math.max(primaryLabel.length, alternateLabel.length);
   const lines = [
     `Extension: ${result.extension.id}`,
     `Version:   ${result.selected.version}`,
@@ -155,7 +211,10 @@ export function renderResolution(result: ResolutionResult): string {
     `Engine:    ${result.compatibility.engine}`,
     `Platform:  ${result.selected.targetPlatform} (${result.compatibility.platformMatch})`,
     `Published: ${result.selected.publishedAt}`,
-    `VSIX:      ${preferredAssetUrl(result.selected.assets.vsix) ?? 'unavailable'}`,
+    `${primaryLabel.padEnd(labelWidth)}  ${links.primary}`,
+    ...(links.alternate === undefined
+      ? []
+      : [`${alternateLabel.padEnd(labelWidth)}  ${links.alternate}`]),
     '',
     'Selection:',
     ...result.compatibility.reasons.map((reason) => `  - ${reason.message}`),

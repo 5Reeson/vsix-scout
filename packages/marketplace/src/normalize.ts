@@ -4,12 +4,14 @@ import {
   type ExtensionRecord,
   type ExtensionVersionCandidate,
 } from '@vsix-scout/core';
+import type { MarketplaceSearchResult } from '@vsix-scout/shared';
 import { ZodError } from 'zod';
 
 import { ASSET_TYPES, PROPERTY_KEYS } from './constants.js';
 import {
   MarketplaceExtensionQueryResponseSchema,
   MarketplaceManifestSchema,
+  MarketplaceSearchResponseSchema,
   type MarketplaceExtension,
   type MarketplaceManifest,
   type MarketplaceVersion,
@@ -17,6 +19,23 @@ import {
 import { assertAllowedMarketplaceUrl } from './url-policy.js';
 
 export type ManifestFixtureMap = Readonly<Record<string, unknown>>;
+
+const INSTALL_STATISTIC_NAME = 'install';
+
+function upstreamInvalidResponse(error: unknown, message: string): never {
+  if (error instanceof ZodError) {
+    throw new ScoutError('UPSTREAM_INVALID_RESPONSE', message, {
+      cause: error,
+      details: {
+        issues: error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      },
+    });
+  }
+  throw error;
+}
 
 function propertyValue(
   version: MarketplaceVersion,
@@ -220,22 +239,46 @@ export function normalizeMarketplaceResponse(
       throw error;
     }
 
-    if (error instanceof ZodError) {
-      throw new ScoutError(
-        'UPSTREAM_INVALID_RESPONSE',
-        'The Marketplace response did not match the expected shape.',
-        {
-          cause: error,
-          details: {
-            issues: error.issues.map((issue) => ({
-              path: issue.path.join('.'),
-              message: issue.message,
-            })),
-          },
-        },
+    upstreamInvalidResponse(
+      error,
+      'The Marketplace response did not match the expected shape.',
+    );
+  }
+}
+
+export function normalizeSearchResults(
+  input: unknown,
+): readonly MarketplaceSearchResult[] {
+  try {
+    const response = MarketplaceSearchResponseSchema.parse(input);
+    const extensions = response.results.flatMap((result) => result.extensions);
+    return extensions.map((extension) => {
+      const publisher = extension.publisher.publisherName.toLowerCase();
+      const name = extension.extensionName.toLowerCase();
+      const installStatistic = extension.statistics?.find(
+        (statistic) => statistic.statisticName === INSTALL_STATISTIC_NAME,
       );
+      return {
+        id: `${publisher}.${name}`,
+        publisher,
+        name,
+        ...(extension.displayName === undefined
+          ? {}
+          : { displayName: extension.displayName }),
+        installCount: installStatistic?.value ?? 0,
+        ...(extension.lastUpdated === undefined
+          ? {}
+          : { lastUpdated: extension.lastUpdated }),
+      };
+    });
+  } catch (error) {
+    if (error instanceof ScoutError) {
+      throw error;
     }
 
-    throw error;
+    upstreamInvalidResponse(
+      error,
+      'The Marketplace search response did not match the expected shape.',
+    );
   }
 }

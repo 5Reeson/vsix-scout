@@ -30,7 +30,10 @@ export interface SafeVsixDownloaderOptions {
 }
 
 export interface VsixDownloadRequest {
-  readonly asset: ExtensionAsset;
+  /** Pattern B Marketplace endpoint (preferred; tried first). */
+  readonly preferredUrl?: string;
+  /** Pattern A CDN asset metadata; used as a fallback when present. */
+  readonly asset?: ExtensionAsset;
   readonly expectedSha256?: string;
   readonly outputDirectory: string;
   readonly fileName: string;
@@ -120,18 +123,25 @@ function withRedirectAccounting(urlValue: string): string {
   return url.toString();
 }
 
-function downloadCandidates(asset: ExtensionAsset): readonly string[] {
-  if (asset.fallbackUri !== undefined) {
+function downloadCandidates(
+  asset: ExtensionAsset | undefined,
+  preferredUrl: string | undefined,
+): readonly string[] {
+  if (preferredUrl !== undefined) {
+    assertAllowedMarketplaceUrl(preferredUrl);
+  }
+  if (asset?.fallbackUri !== undefined) {
     assertAllowedMarketplaceUrl(asset.fallbackUri);
   }
-  if (asset.primaryUri !== undefined) {
+  if (asset?.primaryUri !== undefined) {
     assertAllowedMarketplaceUrl(asset.primaryUri);
   }
   const candidates = [
-    ...(asset.fallbackUri === undefined
+    ...(preferredUrl === undefined ? [] : [preferredUrl]),
+    ...(asset?.fallbackUri === undefined
       ? []
       : [withRedirectAccounting(asset.fallbackUri)]),
-    ...(asset.primaryUri === undefined ? [] : [asset.primaryUri]),
+    ...(asset?.primaryUri === undefined ? [] : [asset.primaryUri]),
   ];
 
   for (const candidate of candidates) {
@@ -226,7 +236,7 @@ export class SafeVsixDownloader implements VsixDownloader {
   async download(request: VsixDownloadRequest): Promise<VsixDownloadResult> {
     validateFileName(request.fileName);
     const expectedSha256 = normalizeExpectedSha256(request.expectedSha256);
-    const candidates = downloadCandidates(request.asset);
+    const candidates = downloadCandidates(request.asset, request.preferredUrl);
     if (candidates.length === 0) {
       throw downloadError('The selected extension version has no VSIX asset.', {
         details: { reason: 'missing-asset' },

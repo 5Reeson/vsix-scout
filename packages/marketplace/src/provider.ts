@@ -5,18 +5,30 @@ import {
   type ExtensionRecord,
   type MarketplaceSource,
 } from '@vsix-scout/core';
-import { PROJECT_VERSION, type ExtensionReference } from '@vsix-scout/shared';
+import {
+  PROJECT_VERSION,
+  type ExtensionReference,
+  type MarketplaceSearchResult,
+  type SearchRequestOptions,
+} from '@vsix-scout/shared';
 import { ZodError } from 'zod';
 
 import {
   ASSET_TYPES,
   EXTENSION_QUERY_FILTER_NAME,
+  EXTENSION_QUERY_FILTER_SEARCH,
+  EXTENSION_QUERY_FILTER_TARGET,
+  EXTENSION_QUERY_SORT_BY_INSTALLS,
+  EXTENSION_QUERY_SORT_ORDER_DESCENDING,
+  EXTENSION_QUERY_TARGET_VALUE,
   HISTORY_QUERY_FLAGS,
   MARKETPLACE_API_VERSION,
   MARKETPLACE_QUERY_URL,
+  SEARCH_QUERY_FLAGS,
 } from './constants.js';
 import {
   normalizeMarketplaceResponse,
+  normalizeSearchResults,
   type ManifestFixtureMap,
 } from './normalize.js';
 import { MarketplaceManifestSchema } from './raw-schema.js';
@@ -68,6 +80,10 @@ export interface MarketplaceExtensionRequestOptions {
   /** Limit manifest fallback work to an exact platform plus universal builds. */
   readonly platform?: string;
 }
+
+export type MarketplaceSearchRequestOptions = SearchRequestOptions;
+
+const DEFAULT_SEARCH_LIMIT = 8;
 
 interface ManifestLoadResult {
   readonly manifests: ManifestFixtureMap;
@@ -343,6 +359,56 @@ export class MarketplaceProvider implements ExtensionProvider {
     } finally {
       this.#inFlight.delete(normalizedReference.id);
     }
+  }
+
+  async searchExtensions(
+    keyword: string,
+    options: MarketplaceSearchRequestOptions = {},
+  ): Promise<readonly MarketplaceSearchResult[]> {
+    const term = keyword.trim();
+    if (term === '') {
+      throw new ScoutError(
+        'INVALID_INPUT',
+        'Search keyword must not be empty.',
+        { details: { field: 'keyword' } },
+      );
+    }
+    const limit =
+      options.limit === undefined
+        ? DEFAULT_SEARCH_LIMIT
+        : requireIntegerOption('limit', options.limit, 1);
+
+    const rawResponse = await this.#requestJson(
+      MARKETPLACE_QUERY_URL,
+      {
+        method: 'POST',
+        headers: {
+          Accept: `application/json;api-version=${MARKETPLACE_API_VERSION}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filters: [
+            {
+              criteria: [
+                { filterType: EXTENSION_QUERY_FILTER_SEARCH, value: term },
+                {
+                  filterType: EXTENSION_QUERY_FILTER_TARGET,
+                  value: EXTENSION_QUERY_TARGET_VALUE,
+                },
+              ],
+              pageNumber: 1,
+              pageSize: limit,
+              sortBy: EXTENSION_QUERY_SORT_BY_INSTALLS,
+              sortOrder: EXTENSION_QUERY_SORT_ORDER_DESCENDING,
+            },
+          ],
+          flags: SEARCH_QUERY_FLAGS,
+        }),
+      },
+      { resource: 'metadata', maxBytes: this.#maxMetadataBytes },
+    );
+
+    return normalizeSearchResults(rawResponse);
   }
 
   hasPendingManifests(

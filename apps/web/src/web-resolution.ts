@@ -1,5 +1,6 @@
 import {
   ScoutError,
+  marketplaceVspackageUrl,
   resolveExtension,
   validateResolutionRequest,
   type ExtensionProvider,
@@ -17,6 +18,43 @@ import {
   type RequestedTargetPlatform,
 } from '@vsix-scout/shared';
 
+/**
+ * True when the input is a non-empty bare keyword that is not a Marketplace
+ * URL and not a parseable `publisher.extension` reference. Such input fails
+ * `parseMarketplaceExtensionReference` with INVALID_INPUT and is a candidate
+ * for keyword search suggestions.
+ */
+export function isBareKeyword(input: string): boolean {
+  const value = input.trim();
+  if (value === '' || value.includes('://')) {
+    return false;
+  }
+  try {
+    parseMarketplaceExtensionReference(value);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * True when a resolve failure should trigger keyword suggestions: either the
+ * extension lookup reported EXTENSION_NOT_FOUND, or the input was a bare
+ * keyword that validation rejected as INVALID_INPUT.
+ */
+export function shouldSuggestForError(
+  error: unknown,
+  extension: string,
+): boolean {
+  if (!(error instanceof ScoutError)) {
+    return false;
+  }
+  if (error.code === 'EXTENSION_NOT_FOUND') {
+    return true;
+  }
+  return error.code === 'INVALID_INPUT' && isBareKeyword(extension);
+}
+
 export interface WebResolutionQuery {
   readonly extension: string;
   readonly vscode: string;
@@ -26,7 +64,10 @@ export interface WebResolutionQuery {
 
 export interface WebResolvedVersion {
   readonly resolution: ResolutionResult;
-  readonly downloadUrl?: string;
+  /** Pattern B: Marketplace vspackage endpoint (primary, always present). */
+  readonly downloadUrl: string;
+  /** Pattern A: CDN asset URL from Marketplace metadata, when available. */
+  readonly alternateUrl?: string;
 }
 
 export interface WebResolution {
@@ -58,6 +99,30 @@ function preferredWebAssetUrl(
   return url;
 }
 
+/**
+ * The two download locations for a resolved version. The deterministic
+ * Marketplace endpoint (Pattern B) is the primary download link; the metadata
+ * CDN asset URL (Pattern A) is kept as an alternate for networks where the
+ * Marketplace host itself is unreachable. Pattern A still passes the allowlist
+ * check so off-policy upstream URLs are rejected.
+ */
+function webDownloadLinks(resolution: ResolutionResult): {
+  readonly downloadUrl: string;
+  readonly alternateUrl?: string;
+} {
+  const downloadUrl = marketplaceVspackageUrl(
+    resolution.extension.publisher,
+    resolution.extension.name,
+    resolution.selected.version,
+    resolution.selected.targetPlatform,
+  );
+  const alternateUrl = preferredWebAssetUrl(resolution);
+  return {
+    downloadUrl,
+    ...(alternateUrl === undefined ? {} : { alternateUrl }),
+  };
+}
+
 function validateWebQuery(query: WebResolutionQuery): void {
   parseMarketplaceExtensionReference(query.extension);
   validateResolutionRequest(query);
@@ -82,10 +147,13 @@ export function compatibleWebVersions(
         { ...record, versions: remaining },
         query,
       );
-      const downloadUrl = preferredWebAssetUrl(resolution);
+      const links = webDownloadLinks(resolution);
       compatible.push({
         resolution,
-        ...(downloadUrl === undefined ? {} : { downloadUrl }),
+        downloadUrl: links.downloadUrl,
+        ...(links.alternateUrl === undefined
+          ? {}
+          : { alternateUrl: links.alternateUrl }),
       });
       remaining = remaining.filter(
         (candidate) => candidate.version !== resolution.selected.version,

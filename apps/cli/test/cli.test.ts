@@ -3,6 +3,7 @@ import {
   type ExtensionProvider,
   type ExtensionRecord,
 } from '@vsix-scout/core';
+import type { MarketplaceSearchResult } from '@vsix-scout/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -11,6 +12,24 @@ import {
   type CliIo,
   type VsixDownloader,
 } from '../src/index.js';
+
+const SEARCH_RESULTS: readonly MarketplaceSearchResult[] = [
+  {
+    id: 'ms-python.python',
+    publisher: 'ms-python',
+    name: 'python',
+    displayName: 'Python',
+    installCount: 232_356_114,
+    lastUpdated: '2026-08-08T00:47:12.777+00:00',
+  },
+  {
+    id: 'ms-python.vscode-pylance',
+    publisher: 'ms-python',
+    name: 'vscode-pylance',
+    displayName: 'Pylance',
+    installCount: 199_246_817,
+  },
+];
 
 const record: ExtensionRecord = {
   extension: {
@@ -128,8 +147,44 @@ describe('runCli', () => {
     expect(output).toMatchObject({
       schemaVersion: 1,
       command: 'resolve',
-      selected: { version: '2.0.0', targetPlatform: 'universal' },
+      selected: {
+        version: '2.0.0',
+        targetPlatform: 'universal',
+        marketplaceUrl:
+          'https://marketplace.visualstudio.com/_apis/public/gallery/publishers/example/vsextensions/extension/2.0.0/vspackage',
+        assetUrl:
+          'https://example.gallerycdn.vsassets.io/extensions/example/extension/2.0.0/file',
+      },
     });
+    expect(test.output().stderr).toBe('');
+  });
+
+  it('renders both official download links, Marketplace first', async () => {
+    const test = harness();
+    const exitCode = await runCli(
+      [
+        'resolve',
+        'example.extension',
+        '--vscode',
+        '1.95.0',
+        '--platform',
+        'linux-x64',
+      ],
+      test.dependencies,
+    );
+    const stdout = test.output().stdout;
+    const marketplaceIndex = stdout.indexOf('VSIX (Marketplace):');
+    const cdnIndex = stdout.indexOf('VSIX (CDN):');
+
+    expect(exitCode).toBe(0);
+    expect(marketplaceIndex).toBeGreaterThan(-1);
+    expect(cdnIndex).toBeGreaterThan(marketplaceIndex);
+    expect(stdout).toContain(
+      'https://marketplace.visualstudio.com/_apis/public/gallery/publishers/example/vsextensions/extension/2.0.0/vspackage',
+    );
+    expect(stdout).toContain(
+      'https://example.gallerycdn.vsassets.io/extensions/example/extension/2.0.0/file',
+    );
     expect(test.output().stderr).toBe('');
   });
 
@@ -154,6 +209,122 @@ describe('runCli', () => {
     expect(exitCode).toBe(2);
     expect(output.error.code).toBe('INVALID_INPUT');
     expect(test.provider.getExtension).not.toHaveBeenCalled();
+  });
+
+  it('hints a full command example when the extension reference is missing', async () => {
+    const test = harness();
+    const exitCode = await runCli(
+      ['resolve', '--vscode', '1.95.0', '--platform', 'linux-x64'],
+      test.dependencies,
+    );
+    expect(exitCode).toBe(2);
+    expect(test.output().stderr).toContain(
+      'Example: vsix-scout resolve ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+  });
+
+  it('hints a full command example for an invalid extension reference', async () => {
+    const test = harness();
+    const exitCode = await runCli(
+      [
+        'resolve',
+        'not-a-reference',
+        '--vscode',
+        '1.95.0',
+        '--platform',
+        'linux-x64',
+      ],
+      test.dependencies,
+    );
+    expect(exitCode).toBe(2);
+    expect(test.output().stderr).toContain(
+      'Example: vsix-scout resolve ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+    expect(test.provider.getExtension).not.toHaveBeenCalled();
+  });
+
+  it('hints a complete example when --vscode is missing or malformed', async () => {
+    const missing = harness();
+    const malformed = harness();
+    const exitCodeMissing = await runCli(
+      ['resolve', 'example.extension', '--platform', 'linux-x64'],
+      missing.dependencies,
+    );
+    const exitCodeMalformed = await runCli(
+      [
+        'resolve',
+        'example.extension',
+        '--vscode',
+        'latest',
+        '--platform',
+        'linux-x64',
+      ],
+      malformed.dependencies,
+    );
+    expect(exitCodeMissing).toBe(2);
+    expect(exitCodeMalformed).toBe(2);
+    expect(missing.output().stderr).toContain(
+      'Example: vsix-scout resolve ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+    expect(malformed.output().stderr).toContain(
+      'Example: vsix-scout resolve ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+  });
+
+  it('hints a complete example when --platform is missing or unsupported', async () => {
+    const missing = harness();
+    const unsupported = harness();
+    const exitCodeMissing = await runCli(
+      ['resolve', 'example.extension', '--vscode', '1.95.0'],
+      missing.dependencies,
+    );
+    const exitCodeUnsupported = await runCli(
+      [
+        'resolve',
+        'example.extension',
+        '--vscode',
+        '1.95.0',
+        '--platform',
+        'windows',
+      ],
+      unsupported.dependencies,
+    );
+    expect(exitCodeMissing).toBe(2);
+    expect(exitCodeUnsupported).toBe(2);
+    expect(missing.output().stderr).toContain(
+      'Example: vsix-scout resolve ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+    expect(unsupported.output().stderr).toContain(
+      'Example: vsix-scout resolve ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+  });
+
+  it('hints a versions example when versions lacks an extension', async () => {
+    const test = harness();
+    const exitCode = await runCli(['versions'], test.dependencies);
+    expect(exitCode).toBe(2);
+    expect(test.output().stderr).toContain(
+      'Example: vsix-scout versions ms-python.python --platform linux-x64',
+    );
+  });
+
+  it('hints a download example when download lacks an extension', async () => {
+    const test = harness();
+    const exitCode = await runCli(
+      ['download', '--vscode', '1.95.0', '--platform', 'linux-x64'],
+      test.dependencies,
+    );
+    expect(exitCode).toBe(2);
+    expect(test.output().stderr).toContain(
+      'Example: vsix-scout download ms-python.python --vscode 1.95.0 --platform linux-x64',
+    );
+  });
+
+  it('hints a search example for an empty search keyword', async () => {
+    const test = harness();
+    const exitCode = await runCli(['search'], test.dependencies);
+    expect(exitCode).toBe(2);
+    expect(test.output().stderr).toContain('Example: vsix-scout search python');
   });
 
   it('lists stable versions by default and supports pre-release filters', async () => {
@@ -326,6 +497,160 @@ describe('runCli', () => {
     expect(root.output().stdout).toContain('vsix-scout resolve');
     expect(command.output().stdout).toContain('vsix-scout download');
     expect(root.provider.getExtension).not.toHaveBeenCalled();
+  });
+
+  it('searches extensions ranked by installs in JSON mode', async () => {
+    const searchExtensions = vi.fn(async () => SEARCH_RESULTS);
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(),
+        searchExtensions,
+      },
+    });
+    const exitCode = await runCli(
+      ['search', 'python', '--json'],
+      test.dependencies,
+    );
+    const output = JSON.parse(test.output().stdout) as {
+      schemaVersion: number;
+      command: string;
+      keyword: string;
+      results: Array<{ id: string; installCount: number }>;
+    };
+
+    expect(exitCode).toBe(0);
+    expect(output).toMatchObject({
+      schemaVersion: 1,
+      command: 'search',
+      keyword: 'python',
+    });
+    expect(output.results[0]).toMatchObject({
+      id: 'ms-python.python',
+      installCount: 232_356_114,
+    });
+    expect(searchExtensions).toHaveBeenCalledWith('python', {});
+  });
+
+  it('renders search results as a human table', async () => {
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(),
+        searchExtensions: vi.fn(async () => SEARCH_RESULTS),
+      },
+    });
+    const exitCode = await runCli(['search', 'python'], test.dependencies);
+    const stdout = test.output().stdout;
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Search results for "python"');
+    expect(stdout).toContain('ms-python.python');
+    expect(stdout).toContain('232,356,114');
+    expect(test.output().stderr).toBe('');
+  });
+
+  it('reports when the configured provider does not support search', async () => {
+    const test = harness();
+    const exitCode = await runCli(
+      ['search', 'python', '--json'],
+      test.dependencies,
+    );
+    const output = JSON.parse(test.output().stderr) as {
+      error: { code: string };
+    };
+
+    expect(exitCode).toBe(1);
+    expect(output.error.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('rejects a non-positive search limit before calling the provider', async () => {
+    const searchExtensions = vi.fn();
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(),
+        searchExtensions,
+      },
+    });
+    const exitCode = await runCli(
+      ['search', 'python', '--limit', '0'],
+      test.dependencies,
+    );
+
+    expect(exitCode).toBe(2);
+    expect(searchExtensions).not.toHaveBeenCalled();
+  });
+
+  it('suggests extensions in text mode when the extension is not found', async () => {
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(async () => {
+          throw new ScoutError(
+            'EXTENSION_NOT_FOUND',
+            'Extension "ms-python.python" was not found.',
+          );
+        }),
+        searchExtensions: vi.fn(async () => SEARCH_RESULTS),
+      },
+    });
+    const exitCode = await runCli(
+      ['versions', 'ms-python.python'],
+      test.dependencies,
+    );
+    const stderr = test.output().stderr;
+
+    expect(exitCode).toBe(3);
+    expect(stderr).toContain('Error [EXTENSION_NOT_FOUND]');
+    expect(stderr).toContain('Did you mean?');
+    expect(stderr).toContain('ms-python.python');
+  });
+
+  it('suggests extensions for a bare keyword without changing the exit code', async () => {
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(),
+        searchExtensions: vi.fn(async () => SEARCH_RESULTS),
+      },
+    });
+    const exitCode = await runCli(
+      ['versions', 'python', '--json'],
+      test.dependencies,
+    );
+    const output = JSON.parse(test.output().stderr) as {
+      error: {
+        code: string;
+        details: { suggestions?: Array<{ id: string }> };
+      };
+    };
+
+    expect(exitCode).toBe(2);
+    expect(output.error.code).toBe('INVALID_INPUT');
+    expect(output.error.details.suggestions?.[0]?.id).toBe('ms-python.python');
+  });
+
+  it('omits suggestions when the suggestion search returns nothing', async () => {
+    const test = harness({
+      provider: {
+        source: 'visual-studio-marketplace',
+        getExtension: vi.fn(async () => {
+          throw new ScoutError(
+            'EXTENSION_NOT_FOUND',
+            'Extension "zzzz.nothing" was not found.',
+          );
+        }),
+        searchExtensions: vi.fn(async () => []),
+      },
+    });
+    const exitCode = await runCli(
+      ['versions', 'zzzz.nothing'],
+      test.dependencies,
+    );
+
+    expect(exitCode).toBe(3);
+    expect(test.output().stderr).not.toContain('Did you mean?');
   });
 
   it('accepts the argument separator forwarded by pnpm scripts', async () => {

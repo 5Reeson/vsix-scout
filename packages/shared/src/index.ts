@@ -21,3 +21,19 @@ export interface ExtensionReference {
   readonly publisher: string;
   readonly name: string;
 }
+
+/** One normalized Marketplace search hit, ranked by install count. */
+export interface MarketplaceSearchResult {
+  readonly id: string;
+  readonly publisher: string;
+  readonly name: string;
+  readonly displayName?: string;
+  /** The upstream `install` statistic; 0 when the upstream statistic is absent. */
+  readonly installCount: number;
+  readonly lastUpdated?: string;
+}
+
+export interface SearchRequestOptions {
+  /** Maximum number of results to request from the Marketplace. */
+  readonly limit?: number;
+}

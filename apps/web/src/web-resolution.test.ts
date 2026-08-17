@@ -1,11 +1,19 @@
 import { readFile } from 'node:fs/promises';
 
-import { resolveExtension } from '@vsix-scout/core';
+import {
+  marketplaceVspackageUrl,
+  resolveExtension,
+  ScoutError,
+} from '@vsix-scout/core';
 import type { ExtensionProvider, ExtensionRecord } from '@vsix-scout/core';
 import { normalizeMarketplaceResponse } from '@vsix-scout/marketplace';
 import { describe, expect, it, vi } from 'vitest';
 
-import { resolveWebQuery } from './web-resolution.js';
+import {
+  isBareKeyword,
+  resolveWebQuery,
+  shouldSuggestForError,
+} from './web-resolution.js';
 
 const fixtureRoot = new URL(
   '../../../tests/fixtures/marketplace/',
@@ -70,6 +78,14 @@ describe('resolveWebQuery fixture parity', () => {
 
       expect(web.selected.resolution).toEqual(expected);
       expect(web.selected.downloadUrl).toBe(
+        marketplaceVspackageUrl(
+          expected.extension.publisher,
+          expected.extension.name,
+          expected.selected.version,
+          expected.selected.targetPlatform,
+        ),
+      );
+      expect(web.selected.alternateUrl).toBe(
         expected.selected.assets.vsix?.primaryUri ??
           expected.selected.assets.vsix?.fallbackUri,
       );
@@ -125,5 +141,68 @@ describe('resolveWebQuery fixture parity', () => {
         channel: 'stable',
       }),
     ).rejects.toMatchObject({ code: 'UNSAFE_RESOURCE_URL' });
+  });
+});
+
+describe('isBareKeyword', () => {
+  it.each([
+    ['python', true],
+    ['  python  ', true],
+    ['ms-python.python', false],
+    [
+      'https://marketplace.visualstudio.com/items?itemName=ms-python.python',
+      false,
+    ],
+    ['', false],
+    ['   ', false],
+  ] as const)('classifies %j as %s', (input, expected) => {
+    expect(isBareKeyword(input)).toBe(expected);
+  });
+});
+
+describe('shouldSuggestForError', () => {
+  it('suggests on EXTENSION_NOT_FOUND for any extension input', () => {
+    const error = new ScoutError('EXTENSION_NOT_FOUND', 'missing');
+    expect(shouldSuggestForError(error, 'ms-python.python')).toBe(true);
+    expect(shouldSuggestForError(error, 'python')).toBe(true);
+  });
+
+  it('suggests on INVALID_INPUT when the input is a bare keyword', () => {
+    const error = new ScoutError('INVALID_INPUT', 'bad input', {
+      details: { input: 'python' },
+    });
+    expect(shouldSuggestForError(error, 'python')).toBe(true);
+  });
+
+  it('does not suggest on INVALID_INPUT for a full publisher.extension', () => {
+    const error = new ScoutError('INVALID_INPUT', 'bad input', {
+      details: { input: 'ms-python.python' },
+    });
+    expect(shouldSuggestForError(error, 'ms-python.python')).toBe(false);
+  });
+
+  it('does not suggest on INVALID_INPUT for a Marketplace URL', () => {
+    const error = new ScoutError('INVALID_INPUT', 'bad input', {
+      details: {
+        input:
+          'https://marketplace.visualstudio.com/items?itemName=ms-python.python',
+      },
+    });
+    expect(
+      shouldSuggestForError(
+        error,
+        'https://marketplace.visualstudio.com/items?itemName=ms-python.python',
+      ),
+    ).toBe(false);
+  });
+
+  it('ignores non-ScoutError failures', () => {
+    expect(shouldSuggestForError(new Error('boom'), 'python')).toBe(false);
+    expect(shouldSuggestForError('string error', 'python')).toBe(false);
+  });
+
+  it('ignores other ScoutError codes even for bare keywords', () => {
+    const error = new ScoutError('UPSTREAM_UNAVAILABLE', 'network down');
+    expect(shouldSuggestForError(error, 'python')).toBe(false);
   });
 });
