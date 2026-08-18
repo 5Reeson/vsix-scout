@@ -1,6 +1,6 @@
 {
   "name": "vsix-scout",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Find the right extension version for your VS Code.",
   "type": "module",
   "license": "MIT",

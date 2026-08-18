@@ -1,5 +1,6 @@
 import {
   ScoutError,
+  compareVersionsDescending,
   type ExtensionAsset,
   type ExtensionProvider,
   type ExtensionRecord,
@@ -79,6 +80,23 @@ export interface MarketplaceExtensionRequestOptions {
   readonly channel?: 'stable' | 'pre-release';
   /** Limit manifest fallback work to an exact platform plus universal builds. */
   readonly platform?: string;
+}
+
+/**
+ * An `ExtensionProvider` whose `getExtension` accepts Marketplace request
+ * options (channel / platform / manifestLimit) and optionally reports pending
+ * manifest work. Shared by the web and CLI so both can drive incremental,
+ * on-demand manifest loading.
+ */
+export interface IncrementalExtensionProvider extends ExtensionProvider {
+  getExtension(
+    reference: Parameters<ExtensionProvider['getExtension']>[0],
+    options?: MarketplaceExtensionRequestOptions,
+  ): Promise<ExtensionRecord>;
+  hasPendingManifests?(
+    reference: Parameters<ExtensionProvider['getExtension']>[0],
+    options?: Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'>,
+  ): boolean;
 }
 
 export type MarketplaceSearchRequestOptions = SearchRequestOptions;
@@ -563,7 +581,10 @@ export class MarketplaceProvider implements ExtensionProvider {
     options: Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'>,
     attemptedKeys: ReadonlySet<string>,
   ): readonly { readonly key: string; readonly asset: ExtensionAsset }[] {
-    const assetsByKey = new Map<string, ExtensionAsset>();
+    const assetsByKey = new Map<
+      string,
+      { readonly asset: ExtensionAsset; readonly version: string }
+    >();
     const platform = options.platform?.trim().toLowerCase();
 
     for (const version of record.versions) {
@@ -581,10 +602,19 @@ export class MarketplaceProvider implements ExtensionProvider {
         continue;
       }
       const key = `${asset.primaryUri ?? ''}\n${asset.fallbackUri ?? ''}`;
-      if (!attemptedKeys.has(key)) assetsByKey.set(key, asset);
+      if (!attemptedKeys.has(key)) {
+        assetsByKey.set(key, { asset, version: version.version });
+      }
     }
 
-    return [...assetsByKey].map(([key, asset]) => ({ key, asset }));
+    // Load the newest missing versions first: they are the ones that could
+    // still change the resolution, so batching must prioritize them.
+    return [...assetsByKey]
+      .sort(([aKey, a], [bKey, b]) => {
+        const order = compareVersionsDescending(a.version, b.version);
+        return order !== 0 ? order : aKey.localeCompare(bKey);
+      })
+      .map(([key, { asset }]) => ({ key, asset }));
   }
 
   async #loadMissingManifests(
@@ -624,7 +654,6 @@ export class MarketplaceProvider implements ExtensionProvider {
     const urls = [asset.primaryUri, asset.fallbackUri].filter(
       (url): url is string => url !== undefined,
     );
-    let lastError: ScoutError | undefined;
 
     for (const url of urls) {
       try {
@@ -653,37 +682,23 @@ export class MarketplaceProvider implements ExtensionProvider {
           };
         } catch (error) {
           if (error instanceof ZodError) {
-            lastError = new ScoutError(
-              'UPSTREAM_INVALID_RESPONSE',
-              'A Marketplace manifest did not match the expected shape.',
-              {
-                cause: error,
-                details: {
-                  resource: 'manifest',
-                  url,
-                  issues: error.issues.map((issue) => ({
-                    path: issue.path.join('.'),
-                    message: issue.message,
-                  })),
-                },
-              },
-            );
+            // Malformed manifest: tolerate and try the fallback URL.
             continue;
           }
           throw error;
         }
       } catch (error) {
         if (error instanceof ScoutError) {
-          lastError = error;
+          // A manifest that cannot be loaded (blocked network, timeout, HTTP
+          // error) is tolerated: the version keeps engineSource 'missing' and
+          // the resolver rejects it, instead of failing the whole query. This
+          // keeps the tool usable on networks that cannot reach the gallery CDN.
           continue;
         }
         throw error;
       }
     }
 
-    if (lastError !== undefined) {
-      throw lastError;
-    }
     return undefined;
   }
 

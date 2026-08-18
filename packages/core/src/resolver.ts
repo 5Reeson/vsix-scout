@@ -1,5 +1,5 @@
 import { JSON_SCHEMA_VERSION } from '@vsix-scout/shared';
-import { rcompare, satisfies, valid, validRange } from 'semver';
+import { gt, rcompare, satisfies, valid, validRange } from 'semver';
 
 import { ScoutError } from './errors.js';
 import type {
@@ -79,6 +79,49 @@ export interface NormalizedResolutionRequest {
   readonly platform: string;
   readonly channel: ReleaseChannel;
   readonly version?: string;
+}
+
+/** True when `a` is a strictly newer SemVer than `b`. Invalid versions never compare as newer. */
+export function isNewerVersion(a: string, b: string): boolean {
+  const av = valid(a);
+  const bv = valid(b);
+  return av !== null && bv !== null && gt(av, bv);
+}
+
+/** Orders two extension versions newest-first (SemVer descending); invalid versions sort last. */
+export function compareVersionsDescending(a: string, b: string): number {
+  const av = valid(a);
+  const bv = valid(b);
+  if (av !== null && bv !== null) return rcompare(av, bv);
+  if (av !== null) return -1;
+  if (bv !== null) return 1;
+  return a.localeCompare(b);
+}
+
+/**
+ * True when the record still holds a version that could displace the given
+ * selection: it lacks a known engine, matches the request's channel/platform,
+ * and is newer than the selected version. Such a version needs its manifest
+ * fetched before the selection can be trusted. With an exact-version request
+ * the selection is final regardless.
+ */
+export function needsManifestForNewerCandidate(
+  record: ExtensionRecord,
+  request: NormalizedResolutionRequest,
+  selectedVersion: string,
+): boolean {
+  if (request.version !== undefined) return false;
+  return record.versions.some((candidate) => {
+    if (candidate.engineSource !== 'missing') return false;
+    if (candidate.channel !== request.channel) return false;
+    if (
+      candidate.targetPlatform !== request.platform &&
+      candidate.targetPlatform !== 'universal'
+    ) {
+      return false;
+    }
+    return isNewerVersion(candidate.version, selectedVersion);
+  });
 }
 
 interface EligibleCandidate {

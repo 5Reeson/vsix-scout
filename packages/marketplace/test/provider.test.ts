@@ -164,10 +164,12 @@ describe('MarketplaceProvider', () => {
       throw new Error('Manifest batching fixture is incomplete.');
     }
     const template = versions[0];
+    // Inserted out of SemVer order on purpose so the test can verify that
+    // missing manifests are loaded newest-first.
     versions.splice(
       0,
       1,
-      ...['3.0.0', '2.0.0', '1.0.0'].map((version, index) => ({
+      ...['1.0.0', '2.0.0', '3.0.0'].map((version, index) => ({
         ...template,
         version,
         assetUri: `https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/${version}/${index}`,
@@ -226,6 +228,34 @@ describe('MarketplaceProvider', () => {
     ).toBe(false);
     expect(manifestRequests).toHaveLength(2);
     expect(new Set(manifestRequests).size).toBe(2);
+    // Newest missing version is fetched before the older one.
+    expect(manifestRequests[0]).toContain('/3.0.0/');
+    expect(manifestRequests[1]).toContain('/1.0.0/');
+  });
+
+  it('tolerates blocked manifest locations and keeps the engine missing', async () => {
+    const metadata = await readFixture(
+      'marketplace/engine-fallback-python.json',
+    );
+    // A blocked gallery CDN (e.g. a corporate firewall) fails with a network
+    // error rather than a 404; the query must still resolve.
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input) === MARKETPLACE_QUERY_URL) {
+        return jsonResponse(metadata);
+      }
+      throw new TypeError('Failed to fetch');
+    });
+    const provider = new MarketplaceProvider({
+      fetch: fetchMock,
+      maxRetries: 0,
+    });
+
+    const record = await provider.getExtension(
+      parseMarketplaceExtensionReference('ms-python.python'),
+    );
+
+    expect(record.versions[0]).toMatchObject({ engineSource: 'missing' });
+    expect(record.versions[0]?.engine).toBeUndefined();
   });
 
   it('honors Retry-After and succeeds after a transient rate limit', async () => {

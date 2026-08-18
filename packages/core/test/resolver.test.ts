@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ScoutError,
+  compareVersionsDescending,
+  isNewerVersion,
+  needsManifestForNewerCandidate,
   resolveExtension,
   type ExtensionRecord,
   type ExtensionVersionCandidate,
@@ -323,5 +326,101 @@ describe('resolveExtension explanations and errors', () => {
         },
       });
     }
+  });
+});
+
+describe('version helpers', () => {
+  it('isNewerVersion compares SemVer numerically, not lexically', () => {
+    expect(isNewerVersion('2026.4.0', '2.1.0')).toBe(true);
+    expect(isNewerVersion('2025.20.1', '2025.3.0')).toBe(true);
+    expect(isNewerVersion('2.1.0', '2.1.0-beta.1')).toBe(true);
+    expect(isNewerVersion('1.0.0', '2.1.0')).toBe(false);
+    expect(isNewerVersion('1.0.0', 'nonsense')).toBe(false);
+    expect(isNewerVersion('nonsense', '1.0.0')).toBe(false);
+  });
+
+  it('compareVersionsDescending sorts newest first', () => {
+    const sorted = [
+      '0.6.9',
+      '2.1.0-beta.1',
+      '2025.3.0',
+      '2026.4.0',
+      '2025.20.1',
+    ].sort(compareVersionsDescending);
+    expect(sorted).toEqual([
+      '2026.4.0',
+      '2025.20.1',
+      '2025.3.0',
+      '2.1.0-beta.1',
+      '0.6.9',
+    ]);
+  });
+
+  it('needsManifestForNewerCandidate flags newer matching missing-engine versions', () => {
+    const rec = record([
+      candidate({
+        version: '2026.4.0',
+        engine: '^1.95.0',
+        platform: 'linux-arm64',
+      }),
+      candidate({
+        version: '2025.10.0',
+        engine: null,
+        platform: 'linux-arm64',
+      }),
+      candidate({ version: '0.7.0', engine: null, platform: 'universal' }),
+      candidate({ version: '1.0.0', engine: null, platform: 'win32-x64' }),
+      candidate({ version: '1.5.0', engine: null, channel: 'pre-release' }),
+    ]);
+    const request = {
+      vscode: '1.95.0',
+      platform: 'linux-arm64',
+      channel: 'stable',
+    } as const;
+
+    // Selected 2026.4.0: newer than every matching missing version → no manifest needed.
+    expect(needsManifestForNewerCandidate(rec, request, '2026.4.0')).toBe(
+      false,
+    );
+    // Selected 2024.0.0: the missing linux-arm64 2025.10.0 is newer → manifest needed.
+    expect(needsManifestForNewerCandidate(rec, request, '2024.0.0')).toBe(true);
+    // Selected 1.0.0: the linux-arm64 2025.10.0 (or universal 0.7.0) is newer → needed.
+    expect(needsManifestForNewerCandidate(rec, request, '1.0.0')).toBe(true);
+    // A different platform (win32-x64): only universal 0.7.0 matches, which is older → none needed.
+    expect(
+      needsManifestForNewerCandidate(
+        rec,
+        { ...request, platform: 'win32-x64' },
+        '1.0.0',
+      ),
+    ).toBe(false);
+    // A pre-release missing version (1.5.0) is excluded by channel: with a
+    // selected 1.4.0 it would otherwise force a manifest fetch.
+    expect(
+      needsManifestForNewerCandidate(
+        rec,
+        { ...request, platform: 'universal' },
+        '1.4.0',
+      ),
+    ).toBe(false);
+  });
+
+  it('an exact-version request is always final', () => {
+    const rec = record([
+      candidate({ version: '2.0.0', engine: '^1.80.0' }),
+      candidate({ version: '2026.4.0', engine: null }),
+    ]);
+    expect(
+      needsManifestForNewerCandidate(
+        rec,
+        {
+          vscode: '1.95.0',
+          platform: 'linux-x64',
+          channel: 'stable',
+          version: '2.0.0',
+        },
+        '2.0.0',
+      ),
+    ).toBe(false);
   });
 });
