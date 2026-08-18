@@ -144,6 +144,132 @@ describe('resolveWebQuery fixture parity', () => {
   });
 });
 
+describe('resolveWebQuery two-phase manifest loading', () => {
+  const baseRecord = (
+    versions: ExtensionRecord['versions'],
+  ): ExtensionRecord => ({
+    extension: {
+      id: 'example.extension',
+      publisher: 'example',
+      name: 'extension',
+    },
+    source: 'visual-studio-marketplace',
+    versions,
+  });
+
+  it('resolves without any manifest request when the selection is certain', async () => {
+    const record = baseRecord([
+      {
+        version: '2026.4.0',
+        targetPlatform: 'linux-arm64',
+        publishedAt: '2026-03-01T00:00:00Z',
+        channel: 'stable',
+        engine: '^1.95.0',
+        engineSource: 'property',
+        dependencies: [],
+        extensionPack: [],
+        assets: {
+          vsix: {
+            primaryUri:
+              'https://example.gallerycdn.vsassets.io/extensions/example/extension/new',
+          },
+        },
+      },
+      {
+        version: '0.7.0',
+        targetPlatform: 'universal',
+        publishedAt: '2020-01-01T00:00:00Z',
+        channel: 'stable',
+        engineSource: 'missing',
+        dependencies: [],
+        extensionPack: [],
+        assets: {
+          vsix: {
+            primaryUri:
+              'https://example.gallerycdn.vsassets.io/extensions/example/extension/old',
+          },
+        },
+      },
+    ]);
+    const getExtension = vi.fn<ExtensionProvider['getExtension']>();
+    getExtension.mockResolvedValue(record);
+    const provider = {
+      source: 'visual-studio-marketplace' as const,
+      getExtension,
+      hasPendingManifests: () => true,
+    };
+
+    const web = await resolveWebQuery(provider, {
+      extension: 'example.extension',
+      vscode: '1.95.0',
+      platform: 'linux-arm64',
+      channel: 'stable',
+    });
+
+    expect(getExtension).toHaveBeenCalledTimes(1);
+    expect(web.selected.resolution.selected.version).toBe('2026.4.0');
+  });
+
+  it('enriches manifests when a newer missing-engine version could displace the selection', async () => {
+    const missingNewer: ExtensionRecord['versions'][number] = {
+      version: '2026.4.0',
+      targetPlatform: 'linux-arm64',
+      publishedAt: '2026-03-01T00:00:00Z',
+      channel: 'stable',
+      engineSource: 'missing',
+      dependencies: [],
+      extensionPack: [],
+      assets: {
+        vsix: {
+          primaryUri:
+            'https://example.gallerycdn.vsassets.io/extensions/example/extension/a',
+        },
+      },
+    };
+    const knownOlder: ExtensionRecord['versions'][number] = {
+      version: '2025.10.0',
+      targetPlatform: 'linux-arm64',
+      publishedAt: '2025-10-01T00:00:00Z',
+      channel: 'stable',
+      engine: '^1.95.0',
+      engineSource: 'property',
+      dependencies: [],
+      extensionPack: [],
+      assets: {
+        vsix: {
+          primaryUri:
+            'https://example.gallerycdn.vsassets.io/extensions/example/extension/b',
+        },
+      },
+    };
+    const record0 = baseRecord([missingNewer, knownOlder]);
+    const record1 = baseRecord([
+      { ...missingNewer, engine: '^1.95.0', engineSource: 'manifest' },
+      knownOlder,
+    ]);
+    const getExtension = vi
+      .fn<ExtensionProvider['getExtension']>()
+      .mockResolvedValueOnce(record0)
+      .mockResolvedValueOnce(record1);
+    const provider = {
+      source: 'visual-studio-marketplace' as const,
+      getExtension,
+      hasPendingManifests: () => true,
+    };
+
+    const web = await resolveWebQuery(provider, {
+      extension: 'example.extension',
+      vscode: '1.95.0',
+      platform: 'linux-arm64',
+      channel: 'stable',
+    });
+
+    expect(getExtension).toHaveBeenCalledTimes(2);
+    expect(web.selected.resolution.selected.version).toBe('2026.4.0');
+    expect(web.selected.resolution.selected.engineSource).toBe('manifest');
+  });
+});
+
 describe('isBareKeyword', () => {
   it.each([
     ['python', true],

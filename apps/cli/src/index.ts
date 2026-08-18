@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 
 import {
   ScoutError,
+  needsManifestForNewerCandidate,
   resolutionDownloadLinks,
   resolveExtension,
   validateExactExtensionVersion,
@@ -16,6 +17,7 @@ import {
 import {
   MarketplaceProvider,
   parseMarketplaceExtensionReference,
+  type IncrementalExtensionProvider,
 } from '@vsix-scout/marketplace';
 import {
   CLI_NAME,
@@ -119,7 +121,7 @@ export interface CliIo {
 }
 
 export interface CliDependencies {
-  readonly provider?: ExtensionProvider;
+  readonly provider?: IncrementalExtensionProvider;
   readonly downloader?: VsixDownloader;
   readonly cwd?: string;
   readonly io?: CliIo;
@@ -447,6 +449,54 @@ async function extensionRecord(
   return provider.getExtension(reference);
 }
 
+const CLI_MANIFEST_BATCH_SIZE = 20;
+
+/**
+ * Two-phase resolution: first resolve from known Engine properties only (no
+ * manifest requests). Only fetch missing manifests (newest first) when a newer
+ * missing-engine version could displace the selection or when no compatible
+ * version is found. Manifest failures are tolerated by the provider.
+ */
+async function resolveRecordWithMinimalManifests(
+  extension: string,
+  request: NormalizedResolutionRequest,
+  provider: IncrementalExtensionProvider,
+): Promise<ExtensionRecord> {
+  const reference = parseMarketplaceExtensionReference(extension);
+  const baseOptions = { channel: request.channel, platform: request.platform };
+
+  let record = await provider.getExtension(reference, {
+    ...baseOptions,
+    manifestLimit: 0,
+  });
+  for (;;) {
+    let selectedVersion: string | undefined;
+    try {
+      selectedVersion = resolveExtension(record, request).selected.version;
+    } catch (error) {
+      if (
+        !(error instanceof ScoutError) ||
+        error.code !== 'NO_COMPATIBLE_VERSION'
+      ) {
+        throw error;
+      }
+      selectedVersion = undefined;
+    }
+    const selectionCertain =
+      selectedVersion !== undefined &&
+      !needsManifestForNewerCandidate(record, request, selectedVersion);
+    if (selectionCertain) break;
+    const hasPending =
+      provider.hasPendingManifests?.(reference, baseOptions) ?? false;
+    if (!hasPending) break;
+    record = await provider.getExtension(reference, {
+      ...baseOptions,
+      manifestLimit: CLI_MANIFEST_BATCH_SIZE,
+    });
+  }
+  return record;
+}
+
 async function searchSuggestions(
   extension: string | undefined,
   error: ScoutError,
@@ -535,7 +585,11 @@ export async function runCli(
 
     if (parsed.command === 'resolve' || parsed.command === 'download') {
       const request = resolutionRequest(parsed.values);
-      const record = await extensionRecord(extension, provider);
+      const record = await resolveRecordWithMinimalManifests(
+        extension,
+        request,
+        provider,
+      );
       const result = resolveExtension(record, request);
 
       if (parsed.command === 'resolve') {

@@ -1,9 +1,9 @@
 import {
   ScoutError,
   marketplaceVspackageUrl,
+  needsManifestForNewerCandidate,
   resolveExtension,
   validateResolutionRequest,
-  type ExtensionProvider,
   type ExtensionRecord,
   type ReleaseChannel,
   type ResolutionResult,
@@ -11,6 +11,7 @@ import {
 import {
   assertAllowedMarketplaceUrl,
   parseMarketplaceExtensionReference,
+  type IncrementalExtensionProvider,
   type MarketplaceExtensionRequestOptions,
 } from '@vsix-scout/marketplace';
 import {
@@ -75,17 +76,6 @@ export interface WebResolution {
   readonly selected: WebResolvedVersion;
   readonly compatibleVersions: readonly WebResolvedVersion[];
   readonly hasPendingManifests: boolean;
-}
-
-interface IncrementalExtensionProvider extends ExtensionProvider {
-  getExtension(
-    reference: Parameters<ExtensionProvider['getExtension']>[0],
-    options?: MarketplaceExtensionRequestOptions,
-  ): Promise<ExtensionRecord>;
-  hasPendingManifests?(
-    reference: Parameters<ExtensionProvider['getExtension']>[0],
-    options?: Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'>,
-  ): boolean;
 }
 
 function preferredWebAssetUrl(
@@ -172,21 +162,68 @@ export function compatibleWebVersions(
   return compatible;
 }
 
+const DEFAULT_MANIFEST_BATCH_SIZE = 20;
+
+// TODO(display): "other compatible versions" only reveals missing-engine
+// versions after the user clicks Show more (each batch issues manifest
+// requests that can be slow or fail on CDN-blocked networks). Consider
+// revealing all known-engine compatible versions first and enriching
+// manifests only when the user scrolls past them.
+export interface WebResolutionOptions extends MarketplaceExtensionRequestOptions {
+  /** Enrich the display list with one extra manifest batch (Show more). */
+  readonly loadForDisplay?: boolean;
+}
+
 export async function resolveWebQuery(
   provider: IncrementalExtensionProvider,
   query: WebResolutionQuery,
-  options: MarketplaceExtensionRequestOptions = {},
+  options: WebResolutionOptions = {},
 ): Promise<WebResolution> {
   validateWebQuery(query);
   const reference = parseMarketplaceExtensionReference(query.extension);
-  const manifestOptions = {
+  const baseOptions = {
     channel: query.channel,
     platform: query.platform,
-    ...options,
-  } satisfies MarketplaceExtensionRequestOptions;
-  const record = await provider.getExtension(reference, manifestOptions);
-  const compatibleVersions = compatibleWebVersions(record, query);
-  const selected = compatibleVersions[0];
+  } satisfies Omit<MarketplaceExtensionRequestOptions, 'manifestLimit'>;
+  const batchSize = options.manifestLimit ?? DEFAULT_MANIFEST_BATCH_SIZE;
+
+  // Phase 1: resolve from known Engine properties only, without any manifest
+  // requests. If the newest compatible version is newer than every
+  // missing-engine version, the selection is already final.
+  let record = await provider.getExtension(reference, {
+    ...baseOptions,
+    manifestLimit: 0,
+  });
+  let compatibleVersions = compatibleWebVersions(record, query);
+  let selected = compatibleVersions[0];
+
+  // Phase 2: fetch missing manifests (newest first) until the selection is
+  // certain. Show more also forces at least one extra batch for the display
+  // list. Manifest failures are tolerated by the provider (the version stays
+  // 'missing' and is rejected), so this loop degrades gracefully.
+  let batchLoaded = false;
+  for (;;) {
+    const selectionCertain =
+      selected !== undefined &&
+      !needsManifestForNewerCandidate(
+        record,
+        query,
+        selected.resolution.selected.version,
+      );
+    if (selectionCertain && (!options.loadForDisplay || batchLoaded)) {
+      break;
+    }
+    const hasPending =
+      provider.hasPendingManifests?.(reference, baseOptions) ?? false;
+    if (!hasPending) break;
+    record = await provider.getExtension(reference, {
+      ...baseOptions,
+      manifestLimit: batchSize,
+    });
+    compatibleVersions = compatibleWebVersions(record, query);
+    selected = compatibleVersions[0];
+    batchLoaded = true;
+  }
 
   if (selected === undefined) {
     resolveExtension(record, query);
@@ -198,6 +235,6 @@ export async function resolveWebQuery(
     selected,
     compatibleVersions,
     hasPendingManifests:
-      provider.hasPendingManifests?.(reference, manifestOptions) ?? false,
+      provider.hasPendingManifests?.(reference, baseOptions) ?? false,
   };
 }

@@ -188,6 +188,29 @@ describe('runCli', () => {
     expect(test.output().stderr).toBe('');
   });
 
+  it('resolves from known Engine properties before requesting any manifest', async () => {
+    const test = harness();
+    const exitCode = await runCli(
+      [
+        'resolve',
+        'example.extension',
+        '--vscode',
+        '1.95.0',
+        '--platform',
+        'linux-x64',
+        '--json',
+      ],
+      test.dependencies,
+    );
+    expect(exitCode).toBe(0);
+    expect(test.provider.getExtension).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'example.extension' }),
+      { channel: 'stable', platform: 'linux-x64', manifestLimit: 0 },
+    );
+    // The fixture selection is certain from properties, so no manifest fetch.
+    expect(test.provider.getExtension).toHaveBeenCalledTimes(1);
+  });
+
   it('validates resolution input before calling the provider', async () => {
     const test = harness();
     const exitCode = await runCli(

@@ -314,6 +314,9 @@ export function App() {
       const data = query.data.hasPendingManifests
         ? await resolveWebQuery(provider, query.submittedForm, {
             manifestLimit: MANIFEST_BATCH_SIZE,
+            // Show more: reveal more compatible versions, loading the next
+            // manifest batch even when the selection is already final.
+            loadForDisplay: true,
           })
         : query.data;
       setChannelQuery(channel, {
