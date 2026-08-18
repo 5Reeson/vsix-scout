@@ -1,6 +1,6 @@
 export const PROJECT_NAME = 'VSIX Scout';
 export const CLI_NAME = 'vsix-scout';
-export const PROJECT_VERSION = '0.2.0';
+export const PROJECT_VERSION = '0.3.0';
 export const JSON_SCHEMA_VERSION = 1 as const;
 
 export const REQUESTED_TARGET_PLATFORMS = [

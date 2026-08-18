@@ -4,6 +4,26 @@ This project follows [Semantic Versioning](https://semver.org/). Before 1.0,
 minor releases may change CLI behavior; the versioned JSON compatibility policy
 is documented separately in the CLI guide.
 
+## 0.3.0 - 2026-08-19
+
+### Added
+
+- On-demand manifest loading for resolution: CLI `resolve`/`download` and web
+  queries now resolve from known engine properties first, without manifest
+  requests, and fetch missing manifests (newest first) only when a newer
+  missing-engine version could still displace the selection.
+- Web "Show more" enriches the other-compatible-versions list with one extra
+  manifest batch per click.
+
+### Changed
+
+- Manifests that fail to load (blocked network, timeout, HTTP error, or
+  malformed payload) are now tolerated: the affected version keeps an unknown
+  engine and is skipped by the resolver instead of failing the whole query,
+  so queries still work on networks that cannot reach the gallery CDN.
+- Missing-manifest fetches are batched newest-version-first, since those are
+  the versions that can still change the selection.
+
 ## 0.2.0 - 2026-08-18
 
 ### Added
