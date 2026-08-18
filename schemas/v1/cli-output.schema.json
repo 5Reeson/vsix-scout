@@ -7,6 +7,7 @@
     { "$ref": "#/$defs/versions" },
     { "$ref": "#/$defs/inspect" },
     { "$ref": "#/$defs/download" },
+    { "$ref": "#/$defs/search" },
     { "$ref": "#/$defs/error" }
   ],
   "$defs": {
@@ -146,6 +147,7 @@
             "channel": { "enum": ["stable", "pre-release"] },
             "publishedAt": { "type": "string" },
             "assetUrl": { "type": "string", "format": "uri" },
+            "marketplaceUrl": { "type": "string", "format": "uri" },
             "manifestUrl": { "type": "string", "format": "uri" },
             "upstreamSha256": { "type": "string" }
           },
@@ -278,6 +280,32 @@
           }
         }
       ]
+    },
+    "search": {
+      "type": "object",
+      "required": ["schemaVersion", "command", "keyword", "results"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "command": { "const": "search" },
+        "keyword": { "type": "string" },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "publisher", "name", "installCount"],
+            "properties": {
+              "id": { "type": "string" },
+              "publisher": { "type": "string" },
+              "name": { "type": "string" },
+              "displayName": { "type": "string" },
+              "installCount": { "type": "integer", "minimum": 0 },
+              "lastUpdated": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "error": {
       "type": "object",

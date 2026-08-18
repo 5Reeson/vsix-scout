@@ -34,7 +34,7 @@ function run(command, args) {
 }
 
 invariant(packageJson.name === 'vsix-scout', 'Unexpected package name.');
-invariant(packageJson.version === '0.1.0', 'Expected version 0.1.0.');
+invariant(packageJson.version === '0.2.0', 'Expected version 0.2.0.');
 invariant(packageJson.private !== true, 'Release package cannot be private.');
 invariant(packageJson.license === 'MIT', 'Release package must use MIT.');
 invariant(
@@ -48,7 +48,7 @@ invariant(
 );
 invariant(
   run(process.execPath, [fileURLToPath(bundleUrl), '--version']).trim() ===
-    '0.1.0',
+    '0.2.0',
   'Bundled CLI reports the wrong version.',
 );
 invariant(

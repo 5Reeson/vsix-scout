@@ -29,6 +29,13 @@ pnpm cli -- resolve esbenp.prettier-vscode \
 Stable is the default channel. Use `--pre-release` for strict pre-release
 selection or `--version <exact-semver>` to constrain the extension version.
 
+The text output prints two official download locations for the selected
+version: `VSIX (Marketplace)` first — the deterministic
+`marketplace.visualstudio.com` download endpoint that corporate allowlists can
+reach — then `VSIX (CDN)`, the CDN asset URL from the Marketplace metadata when
+it is present. The JSON form exposes them as `selected.marketplaceUrl` and
+`selected.assetUrl`.
+
 ## Versions and inspect
 
 `versions` emits a compact historical variant list:
@@ -48,6 +55,32 @@ pnpm cli -- inspect ms-python.python --version 2026.4.0 --json
 Both commands default to stable candidates and accept `--pre-release`,
 `--platform`, and `--version` filters. A non-universal platform filter includes
 that exact platform plus universal candidates.
+
+## Search
+
+`search` looks up extensions by a bare keyword, ranked by official Marketplace
+install count:
+
+```bash
+pnpm cli -- search python
+```
+
+`--limit <count>` caps the result list (default 8). Suggestions are also shown
+automatically as a "Did you mean?" line when `resolve`, `versions`, or
+`inspect` fail because the extension was not found or the input was a bare
+keyword.
+
+```bash
+pnpm cli -- resolve python
+# > Did you mean:
+#   ms-python.python         Python
+#   ms-python.vscode-pylance Pylance
+```
+
+When a command fails and the input is a bare keyword, each suggestion may be
+resolved directly. Exit codes are unchanged. With `--json`, search emits
+`command: "search"` with `results` ordered by `installCount` descending, and
+failed commands merge the suggestions into the error's `details.suggestions`.
 
 ## Download
 
@@ -92,9 +125,12 @@ Get-FileHash .\artifacts\*.vsix -Algorithm SHA256
   destination. Partial temporary files are removed after errors or interruption.
 - VSIX Scout does not extract, load, install, or execute the downloaded file.
 
-The provider prefers the official gallery fallback URL with `redirect=true` so
-Marketplace download accounting is retained, then uses the official CDN URL as
-a secondary location.
+Download locations are tried in order: first the deterministic
+`marketplace.visualstudio.com` vspackage endpoint, then the official gallery
+fallback URL with `redirect=true` (so Marketplace download accounting is
+retained), then the official CDN URL. Because the first location is derived
+from the extension identity alone, a download still works when the Marketplace
+metadata carries no VSIX asset URL.
 
 ## JSON output
 

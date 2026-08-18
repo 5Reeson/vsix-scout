@@ -10,30 +10,32 @@ export const en = {
   'nav.langToggle': 'Switch language',
   'nav.langSwitchTo': '切换到中文',
 
-  'hero.lead': 'Find the official VSIX that fits your VS Code',
+  'hero.lead': 'Find the official VSIX that fits your Visual Studio Code',
   'hero.support':
-    'Query the Marketplace directly and resolve compatibility in your browser.',
+    'Query the Marketplace directly and find the matching official VSIX in your browser.',
 
-  'section.queryTitle': 'Compatibility lookup',
+  'section.queryTitle': 'Find Compatible Extensions',
   'section.queryDescription':
-    'Enter the extension and target environment to find the latest compatible version.',
+    'Enter the extension and target environment to find the official VSIX version that matches your Visual Studio Code.',
   'section.resultTitle': 'Recommended result',
 
   'form.extensionLabel': 'Extension ID or Marketplace URL',
   'form.extensionPlaceholder': 'ms-python.python',
-  'form.vscodeLabel': 'Full VS Code version',
+  'form.vscodeLabel': 'Full Visual Studio Code version',
   'form.vscodePlaceholder': '1.95.0',
   'form.platformLabel': 'Target platform',
   'form.channelLegend': 'Channel',
-  'form.resolve': 'Resolve compatibility',
-  'form.resolving': 'Resolving compatibility',
+  'form.resolve': 'Go Search',
+  'form.resolving': 'searching',
   'form.note':
-    'Lookup only, no downloads. Your most recently used VS Code version and platform are stored only on this device.',
+    'Lookup only, no downloads. Your most recently used Visual Studio Code version and platform are stored only on this device.',
+  'form.requiredExtension': 'Enter an extension ID or Marketplace URL.',
+  'form.requiredVersion': 'Enter a full Visual Studio Code version.',
 
   'reason.channelMatch':
     'This version belongs to the requested {channel} channel.',
   'reason.engineCompatible':
-    'VS Code {vscode} satisfies engines.vscode {engine}.',
+    'Visual Studio Code {vscode} satisfies engines.vscode {engine}.',
   'reason.engineFromManifest':
     'Marketplace metadata lacks an Engine, so engines.vscode comes from that version’s official manifest.',
   'reason.exactPlatform': 'The package platform exactly matches {platform}.',
@@ -63,11 +65,11 @@ export const en = {
   'result.yes': 'Yes',
   'result.no': 'No',
   'result.why': 'Why this version',
-  'result.noDownloadUrl':
-    'Marketplace metadata did not provide a usable VSIXPackage URL.',
   'result.download': 'Download official VSIX',
-  'result.copyLink': 'Copy download link',
-  'result.copyLinkLabel': 'Download URL',
+  'result.copyMarketplace': 'Copy Marketplace link',
+  'result.copyMarketplaceLabel': 'Marketplace link',
+  'result.copyCdn': 'Copy CDN link',
+  'result.copyCdnLabel': 'CDN link',
   'result.hashLabel': 'Marketplace reported SHA-256',
   'result.hashNote':
     'Value reported by Marketplace metadata; the browser has not verified the downloaded file.',
@@ -79,10 +81,45 @@ export const en = {
   'versions.loadingMore': 'Querying older versions',
   'versions.officialVsix': 'Official VSIX ↗',
 
+  'suggestions.title': 'Did you mean “{keyword}”?',
+  'suggestions.loading': 'Searching for similar extensions…',
+  'suggestions.empty': 'No extensions matched “{keyword}”.',
+  'suggestions.installs': '{count} installs',
+  'suggestions.use': 'Use this extension',
+
   'footer.line1':
     'VSIX Scout picks a compatible version from Marketplace engines.vscode, channel, and platform metadata.',
   'footer.line2':
     'No proxying, no caching, no executing VSIX. Downloads come straight from Microsoft.',
+
+  'about.title': 'About VSIX Scout',
+  'about.lead':
+    'A small tool that finds the official VSIX package matching your Visual Studio Code version, right in your browser.',
+  'about.back': 'Back to the query page',
+
+  'about.background.title': 'Background',
+  'about.background.body':
+    'On intranets or offline networks the official Marketplace is unreachable, so the only option is to download VSIX files and install them offline. But cross-referencing engines.vscode, platform, and channel by hand to find the version that matches your Visual Studio Code is easy to get wrong. VSIX Scout does that in your browser and tells you which version to download.',
+
+  'about.forWhom.title': 'Who it is for',
+  'about.forWhom.1':
+    'Developers on intranets or offline networks that cannot reach the official Marketplace.',
+  'about.forWhom.2':
+    'Teams that need to pin extension versions and mirror a fixed setup against a specific Visual Studio Code version.',
+  'about.forWhom.3':
+    'Anyone who wants to confirm an extension is compatible with their Visual Studio Code before downloading.',
+
+  'about.how.title': 'What it does',
+  'about.how.1':
+    'Queries Microsoft Marketplace metadata directly from your browser, through no intermediate server.',
+  'about.how.2':
+    'Combines engines.vscode, target platform, and release channel to pick a compatible official VSIX from the version history.',
+  'about.how.3':
+    'Shows the recommended version, the reasoning, and the official download link. Downloads come straight from Microsoft — no proxying, no caching, no executing VSIX.',
+
+  'about.privacy.title': 'Privacy',
+  'about.privacy':
+    'Apart from the network requests needed to query the Marketplace, nothing is sent to any third party. Your most recently used version and platform are stored only in your browser.',
 
   'error.shareInvalid.title': 'Invalid input',
   'error.shareInvalid.detail':
@@ -93,13 +130,13 @@ export const en = {
     'Please refresh and try again. If the issue persists, file it on GitHub.',
   'error.invalidInput.title': 'Invalid input',
   'error.invalidInput.detail':
-    'Enter a full publisher.extension or an official Marketplace URL, along with a complete VS Code version.',
+    'Enter a full publisher.extension or an official Marketplace URL, along with a complete Visual Studio Code version. If you typed a keyword, pick from the suggestions below.',
   'error.notFound.title': 'Extension not found',
   'error.notFound.detail':
-    'Check that the publisher and extension names are correct. Keyword search is not supported in this first version.',
+    'Check that the publisher and extension names are accurate, or pick from the suggestions below.',
   'error.noCompatible.title': 'No compatible version',
   'error.noCompatible.detail':
-    'No version in Marketplace history matches the current VS Code, platform, and channel together.',
+    'No version in Marketplace history matches the current Visual Studio Code, platform, and channel together.',
   'error.unsafeUrl.title': 'Download URL failed security checks',
   'error.unsafeUrl.detail':
     'Marketplace returned a resource URL outside the allowlist, so the page blocked the link.',

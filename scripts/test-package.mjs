@@ -68,7 +68,7 @@ try {
     'vsix-scout.js',
   );
   const version = run(process.execPath, [installedCli, '--version']).trim();
-  if (version !== '0.1.0') {
+  if (version !== '0.2.0') {
     throw new Error(`Clean install reported unexpected version ${version}.`);
   }
   run(process.execPath, [installedCli, '--help']);

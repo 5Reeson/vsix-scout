@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 
 import {
   ScoutError,
+  resolutionDownloadLinks,
   resolveExtension,
   validateExactExtensionVersion,
   validateResolutionRequest,
@@ -20,6 +21,7 @@ import {
   CLI_NAME,
   PROJECT_VERSION,
   REQUESTED_TARGET_PLATFORMS,
+  type MarketplaceSearchResult,
 } from '@vsix-scout/shared';
 
 import { SafeVsixDownloader, type VsixDownloader } from './download.js';
@@ -27,16 +29,23 @@ import {
   filterVersions,
   formatJson,
   inspectJson,
-  preferredAssetUrl,
   renderInspection,
   renderResolution,
+  renderSearch,
   renderVersions,
   resolutionJson,
+  searchJson,
   versionsJson,
   type VersionFilters,
 } from './output.js';
 
-const COMMANDS = ['resolve', 'versions', 'inspect', 'download'] as const;
+const COMMANDS = [
+  'resolve',
+  'versions',
+  'inspect',
+  'download',
+  'search',
+] as const;
 type CommandName = (typeof COMMANDS)[number];
 
 const CLI_OPTIONS = {
@@ -48,6 +57,7 @@ const CLI_OPTIONS = {
   json: { type: 'boolean' },
   output: { type: 'string' },
   'no-download': { type: 'boolean' },
+  limit: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
@@ -69,6 +79,7 @@ const ALLOWED_OPTIONS: Readonly<Record<CommandName, ReadonlySet<string>>> = {
     'output',
     'no-download',
   ]),
+  search: new Set(['limit', 'json', 'help']),
 };
 
 const EXIT_CODES: Readonly<Record<ErrorCode, number>> = {
@@ -91,6 +102,7 @@ interface ParsedValues {
   readonly json?: boolean;
   readonly output?: string;
   readonly 'no-download'?: boolean;
+  readonly limit?: string;
   readonly help?: boolean;
 }
 
@@ -126,12 +138,14 @@ Usage:
   vsix-scout versions <extension> [filters]
   vsix-scout inspect <extension> [filters]
   vsix-scout download <extension> --vscode <version> --platform <target> [--output <directory>]
+  vsix-scout search <keyword> [--limit <count>]
 
 Commands:
   resolve    Select and explain the newest compatible version without downloading
   versions   List normalized historical version variants
   inspect    Show extension metadata; use --json for complete normalized records
   download   Resolve, safely download, and calculate SHA-256
+  search     List extensions for a keyword, ranked by Marketplace installs
 
 Common options:
   --vscode <version>       Complete VS Code SemVer (required by resolve/download)
@@ -140,6 +154,7 @@ Common options:
   --stable                 Use the stable channel (default)
   --pre-release            Use the pre-release channel
   --version <version>      Select or filter an exact extension SemVer
+  --limit <count>          Maximum search results (default: 8)
   --json                   Emit versioned machine-readable JSON
   --output <directory>     Download directory (default: current directory)
   --no-download            Resolve and print a download plan without writing a file
@@ -154,6 +169,7 @@ function commandHelp(command: CommandName): string {
     inspect: 'vsix-scout inspect <extension> [filters]',
     download:
       'vsix-scout download <extension> --vscode <version> --platform <target> [--output <directory>]',
+    search: 'vsix-scout search <keyword> [--limit <count>]',
   }[command];
   return `Usage: ${usage}\n\nRun ${CLI_NAME} --help for all options.\n`;
 }
@@ -194,6 +210,7 @@ function parseCommandLine(argv: readonly string[]): ParsedCommand | undefined {
   } catch (error) {
     throw invalidInput(
       error instanceof Error ? error.message : 'Could not parse arguments.',
+      { command },
     );
   }
 
@@ -209,7 +226,9 @@ function parseCommandLine(argv: readonly string[]): ParsedCommand | undefined {
   }
 
   if (values.stable === true && values['pre-release'] === true) {
-    throw invalidInput('--stable and --pre-release are mutually exclusive.');
+    throw invalidInput('--stable and --pre-release are mutually exclusive.', {
+      command,
+    });
   }
   if (values.help === true) {
     return { command, values, help: true };
@@ -280,6 +299,33 @@ function resolutionRequest(values: ParsedValues): NormalizedResolutionRequest {
   });
 }
 
+function searchLimit(values: ParsedValues): number | undefined {
+  if (values.limit === undefined) {
+    return undefined;
+  }
+  const limit = Number(values.limit);
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw invalidInput('--limit must be a positive integer.', {
+      field: 'limit',
+      value: values.limit,
+    });
+  }
+  return limit;
+}
+
+/** True when the input is a bare keyword rather than an extension reference. */
+function isSearchKeyword(value: string): boolean {
+  if (value.includes('://')) {
+    return false;
+  }
+  try {
+    parseMarketplaceExtensionReference(value);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 function versionFilters(values: ParsedValues): VersionFilters {
   const platform = validatedPlatform(values.platform);
   const version =
@@ -337,7 +383,50 @@ function internalError(error: unknown): ScoutError {
   );
 }
 
-function renderError(error: ScoutError, json: boolean): string {
+const EXAMPLE_EXTENSION = 'ms-python.python';
+const EXAMPLE_VSCODE = '1.95.0';
+const EXAMPLE_PLATFORM = 'linux-x64';
+
+/** A complete, runnable example for the command, used in error hints. */
+function commandExample(command: string): string {
+  switch (command) {
+    case 'versions':
+      return `vsix-scout versions ${EXAMPLE_EXTENSION} --platform ${EXAMPLE_PLATFORM}`;
+    case 'inspect':
+      return `vsix-scout inspect ${EXAMPLE_EXTENSION} --platform ${EXAMPLE_PLATFORM}`;
+    case 'download':
+      return `vsix-scout download ${EXAMPLE_EXTENSION} --vscode ${EXAMPLE_VSCODE} --platform ${EXAMPLE_PLATFORM}`;
+    case 'search':
+      return 'vsix-scout search python';
+    default:
+      return `vsix-scout resolve ${EXAMPLE_EXTENSION} --vscode ${EXAMPLE_VSCODE} --platform ${EXAMPLE_PLATFORM}`;
+  }
+}
+
+/**
+ * A copy-pasteable example appended to invalid-input errors. Required
+ * arguments for `resolve`/`download` are all-or-nothing (--vscode and
+ * --platform are both required), so a single-flag example would only invite
+ * the next error; a complete command example unblocks the user in one step.
+ */
+function errorHintLines(
+  error: ScoutError,
+  command: CommandName | undefined,
+): readonly string[] {
+  if (error.code !== 'INVALID_INPUT') return [];
+
+  const hintCommand =
+    typeof error.details?.command === 'string'
+      ? error.details.command
+      : (command ?? 'resolve');
+  return [`Example: ${commandExample(hintCommand)}`];
+}
+
+function renderError(
+  error: ScoutError,
+  json: boolean,
+  command: CommandName | undefined,
+): string {
   if (json) {
     return formatJson(error.toJSON());
   }
@@ -345,7 +434,9 @@ function renderError(error: ScoutError, json: boolean): string {
     error.details === undefined
       ? ''
       : `\nDetails: ${JSON.stringify(error.details)}`;
-  return `Error [${error.code}]: ${error.message}${detailText}\n`;
+  const hintLines = errorHintLines(error, command);
+  const hintText = hintLines.length === 0 ? '' : `\n${hintLines.join('\n')}\n`;
+  return `Error [${error.code}]: ${error.message}${detailText}${hintText}\n`;
 }
 
 async function extensionRecord(
@@ -356,12 +447,69 @@ async function extensionRecord(
   return provider.getExtension(reference);
 }
 
+async function searchSuggestions(
+  extension: string | undefined,
+  error: ScoutError,
+  provider: ExtensionProvider,
+): Promise<readonly MarketplaceSearchResult[] | undefined> {
+  if (provider.searchExtensions === undefined || extension === undefined) {
+    return undefined;
+  }
+  const isNotFound = error.code === 'EXTENSION_NOT_FOUND';
+  // The extension-reference parser reports INVALID_INPUT without a `field`;
+  // validation errors for --vscode/--platform/--limit all carry one.
+  const isKeyword =
+    error.code === 'INVALID_INPUT' &&
+    error.details?.field === undefined &&
+    isSearchKeyword(extension);
+  if (!isNotFound && !isKeyword) {
+    return undefined;
+  }
+  try {
+    return await provider.searchExtensions(extension);
+  } catch {
+    // A failed suggestion lookup must not replace the primary error.
+    return undefined;
+  }
+}
+
+function renderSuggestionLines(
+  results: readonly MarketplaceSearchResult[],
+): string {
+  const lines = results.map((result) => {
+    const label = result.displayName ?? result.name;
+    return `  ${result.id}  ${label} (${result.installCount.toLocaleString('en-US')} installs)`;
+  });
+  return `\nDid you mean?\n${lines.join('\n')}\n`;
+}
+
+/** Returns a copy of the error with suggestions merged into `details`. */
+function withSuggestionsInDetails(
+  error: ScoutError,
+  results: readonly MarketplaceSearchResult[],
+): ScoutError {
+  return new ScoutError(error.code, error.message, {
+    retryable: error.retryable,
+    details: {
+      ...(error.details ?? {}),
+      suggestions: results.map((result) => ({
+        id: result.id,
+        ...(result.displayName === undefined
+          ? {}
+          : { displayName: result.displayName }),
+        installCount: result.installCount,
+      })),
+    },
+  });
+}
+
 export async function runCli(
   argv: readonly string[],
   dependencies: CliDependencies = {},
 ): Promise<number> {
   const io = dependencies.io ?? defaultIo();
   const commandArguments = argv[0] === '--' ? argv.slice(1) : argv;
+  const provider = dependencies.provider ?? new MarketplaceProvider();
   let parsed: ParsedCommand | undefined;
 
   try {
@@ -383,7 +531,6 @@ export async function runCli(
     if (extension === undefined) {
       throw internalError(new Error('Parsed command had no extension.'));
     }
-    const provider = dependencies.provider ?? new MarketplaceProvider();
     const json = parsed.values.json === true;
 
     if (parsed.command === 'resolve' || parsed.command === 'download') {
@@ -400,28 +547,10 @@ export async function runCli(
         return 0;
       }
 
-      const asset = result.selected.assets.vsix;
-      if (asset === undefined) {
-        throw new ScoutError(
-          'DOWNLOAD_FAILED',
-          'The selected extension version has no downloadable VSIX asset.',
-          {
-            details: {
-              extensionId: record.extension.id,
-              version: result.selected.version,
-              reason: 'missing-asset',
-            },
-          },
-        );
-      }
-      const plannedSourceUrl = preferredAssetUrl(asset);
-      if (plannedSourceUrl === undefined) {
-        throw new ScoutError(
-          'DOWNLOAD_FAILED',
-          'The selected VSIX asset has no official download URL.',
-          { details: { reason: 'missing-asset-url' } },
-        );
-      }
+      // The deterministic Marketplace endpoint (Pattern B) always exists for a
+      // resolved version; the metadata CDN asset (Pattern A) is only a fallback.
+      const links = resolutionDownloadLinks(result);
+      const plannedSourceUrl = links.primary;
       const fileName = vsixFileName(
         record.extension.id,
         result.selected.version,
@@ -452,7 +581,10 @@ export async function runCli(
 
       const downloader = dependencies.downloader ?? new SafeVsixDownloader();
       const download = await downloader.download({
-        asset,
+        preferredUrl: links.primary,
+        ...(result.selected.assets.vsix === undefined
+          ? {}
+          : { asset: result.selected.assets.vsix }),
         ...(result.selected.upstreamSha256 === undefined
           ? {}
           : { expectedSha256: result.selected.upstreamSha256 }),
@@ -481,6 +613,32 @@ export async function runCli(
       return 0;
     }
 
+    if (parsed.command === 'search') {
+      const keyword = extension.trim();
+      if (keyword === '') {
+        throw invalidInput('search expects a non-empty keyword.', {
+          command: 'search',
+        });
+      }
+      if (provider.searchExtensions === undefined) {
+        throw new ScoutError(
+          'INTERNAL_ERROR',
+          'The configured provider does not support keyword search.',
+          { details: { command: 'search' } },
+        );
+      }
+      const limit = searchLimit(parsed.values);
+      const results = await provider.searchExtensions(keyword, {
+        ...(limit === undefined ? {} : { limit }),
+      });
+      io.stdout(
+        json
+          ? formatJson(searchJson(keyword, results))
+          : renderSearch(keyword, results),
+      );
+      return 0;
+    }
+
     const filters = versionFilters(parsed.values);
     const record = await extensionRecord(extension, provider);
     const versions = ensureMatchingVersions(record, filters);
@@ -502,12 +660,28 @@ export async function runCli(
   } catch (error) {
     const scoutError =
       error instanceof ScoutError ? error : internalError(error);
-    io.stderr(
-      renderError(
-        scoutError,
-        parsed?.values.json === true || commandArguments.includes('--json'),
-      ),
+    const json =
+      parsed?.values.json === true || commandArguments.includes('--json');
+    const command = parsed?.command;
+    const suggestions = await searchSuggestions(
+      parsed?.extension,
+      scoutError,
+      provider,
     );
+    if (json && suggestions !== undefined && suggestions.length > 0) {
+      io.stderr(
+        renderError(
+          withSuggestionsInDetails(scoutError, suggestions),
+          json,
+          command,
+        ),
+      );
+    } else {
+      io.stderr(renderError(scoutError, json, command));
+      if (suggestions !== undefined && suggestions.length > 0) {
+        io.stderr(renderSuggestionLines(suggestions));
+      }
+    }
     return EXIT_CODES[scoutError.code];
   }
 }
